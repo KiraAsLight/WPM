@@ -1,0 +1,197 @@
+/* Layout grid: sidebar + header + content
+   - Sidebar tetap pada tempatnya (sticky)
+   - Hanya area konten yang dapat di-scroll
+*/
+.layout {
+   display: grid;
+   grid-template-columns: 260px 1fr;
+   grid-template-rows: auto 1fr auto;
+   height: 100vh;
+   overflow: hidden
+}
+
+/* Sidebar minimal agar tetap di tempat, gaya visual lengkap idealnya di sidebar.css */
+.sidebar {
+   grid-row: 1 / span 3;
+   position: sticky;
+   top: 0
+}
+
+/* Header tetap di atas kolom konten */
+.header {
+   grid-column: 2;
+   background: rgba(255, 255, 255, .02);
+   border-bottom: 1px solid var(--border);
+   backdrop-filter: saturate(140%) blur(6px);
+   display: flex;
+   align-items: center;
+   justify-content: space-between;
+   padding: 18px 22px;
+   z-index: 5
+}
+
+.header .title {
+   font-weight: 800;
+   letter-spacing: .3px;
+   font-size: 20px
+}
+
+.header .meta {
+   display: flex;
+   gap: 14px;
+   color: var(--muted);
+   font-size: 12px
+}
+
+/* Konten: area yang dapat di-scroll */
+.content {
+   grid-column: 2;
+   padding: 18px;
+   display: flex;
+   flex-direction: column;
+   gap: 18px;
+   overflow: auto;
+   min-height: 0
+}
+
+/* Komponen umum */
+.grid-3 {
+   display: grid;
+   grid-template-columns: repeat(3, minmax(0, 1fr));
+   gap: 14px
+}
+
+@media (max-width: 900px) {
+   .grid-3 {
+      grid-template-columns: 1fr
+   }
+}
+
+.card {
+   background: rgba(255, 255, 255, .03);
+   border: 1px solid var(--border);
+   border-radius: 14px;
+   overflow: hidden
+}
+
+.card .card-body {
+   padding: 16px
+}
+
+.stat {
+   display: flex;
+   align-items: center;
+   justify-content: space-between
+}
+
+.stat .label {
+   color: var(--muted);
+   font-size: 13px
+}
+
+.stat .value {
+   font-size: 28px;
+   font-weight: 800
+}
+
+.section {
+   background: rgba(255, 255, 255, .03);
+   border: 1px solid var(--border);
+   border-radius: 14px
+}
+
+.section .hd {
+   padding: 14px 16px;
+   border-bottom: 1px solid var(--border);
+   font-weight: 700;
+   letter-spacing: .2px
+}
+
+.section .bd {
+   padding: 16px
+}
+
+.grid-2 {
+   display: grid;
+   grid-template-columns: 2fr 1fr;
+   gap: 16px
+}
+
+@media (max-width: 1100px) {
+   .grid-2 {
+      grid-template-columns: 1fr
+   }
+}
+
+table {
+   width: 100%;
+   border-collapse: collapse
+}
+
+th,
+td {
+   padding: 12px;
+   border-bottom: 1px solid var(--border);
+   text-align: left
+}
+
+th {
+   color: var(--muted);
+   font-weight: 600
+}
+
+tr:hover td {
+   background: rgba(255, 255, 255, .02)
+}
+
+.badge {
+   display: inline-flex;
+   align-items: center;
+   gap: 6px;
+   padding: 4px 8px;
+   border-radius: 999px;
+   font-size: 12px;
+   border: 1px solid var(--border)
+}
+
+.b-ok {
+   background: rgba(34, 197, 94, .12);
+   color: #86efac;
+   border-color: rgba(34, 197, 94, .35)
+}
+
+.b-warn {
+   background: rgba(245, 158, 11, .12);
+   color: #fde68a;
+   border-color: rgba(245, 158, 11, .35)
+}
+
+.b-danger {
+   background: rgba(239, 68, 68, .12);
+   color: #fecaca;
+   border-color: rgba(239, 68, 68, .35)
+}
+
+.footer {
+   grid-column: 2;
+   color: var(--muted);
+   font-size: 12px;
+   text-align: center;
+   padding: 12px;
+   background: rgba(255, 255, 255, .02);
+   border-top: 1px solid var(--border);
+   backdrop-filter: saturate(140%) blur(6px)
+}
+
+/* Override logo di sidebar untuk menampilkan logo perusahaan */
+.brand .logo {
+   flex: 0 0 160px;
+   height: 50px;
+   background-image: url('../img/Logo.jpg');
+   background-repeat: no-repeat;
+   background-size: contain;
+   background-position: left center;
+   border-radius: 8px;
+   box-shadow: none;
+   background-color: transparent
+}
