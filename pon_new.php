@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 session_start();
@@ -11,11 +12,8 @@ require_once 'config.php';
 
 $appName = APP_NAME;
 $activeMenu = 'PON';
-
-// function h(string $s): string
-// {
-//   return htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
-// }
+$server = $_SERVER['SERVER_SOFTWARE'] ?? 'Apache';
+$nowEpoch = time();
 
 $errors = [];
 $old = [
@@ -57,14 +55,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   if ($old['pon'] === '') {
     $errors['pon'] = 'Kode PON wajib diisi';
   } else {
-    // Hapus validasi format PON agar bebas diisi admin
     // Cek duplikasi di database
-    require_once 'config.php';
-    $existing = fetchOne('SELECT id FROM pon WHERE pon = ?', [$old['pon']]);
-    if ($existing) {
-      $errors['pon'] = 'Kode PON sudah ada';
+    try {
+      $existing = fetchOne('SELECT id FROM pon WHERE pon = ?', [$old['pon']]);
+      if ($existing) {
+        $errors['pon'] = 'Kode PON sudah ada';
+      }
+    } catch (Exception $e) {
+      $errors['pon'] = 'Error checking PON: ' . $e->getMessage();
     }
   }
+
   if ($old['type'] === '') {
     $errors['type'] = 'Type wajib diisi';
   }
@@ -77,30 +78,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   if ($old['project_manager'] === '') {
     $errors['project_manager'] = 'Project Manager wajib diisi';
   }
+
   $jobTypes = ['pengadaan', 'pengiriman', 'pemasangan', 'konsultan'];
   if ($old['job_type'] === '') {
     $errors['job_type'] = 'Type pekerjaan wajib diisi';
   } elseif (!in_array($old['job_type'], $jobTypes, true)) {
     $errors['job_type'] = 'Type pekerjaan tidak valid';
   }
+
   if ($old['berat'] === '' || !is_numeric($old['berat']) || (float) $old['berat'] < 0) {
     $errors['berat'] = 'Berat harus angka >= 0';
   }
   if ($old['qty'] === '' || !is_numeric($old['qty']) || (int) $old['qty'] < 0) {
     $errors['qty'] = 'QTY harus angka >= 0';
   }
+
   $statuses = ['Selesai', 'Progres', 'Pending', 'Delayed'];
   if (!in_array($old['status'], $statuses, true)) {
     $errors['status'] = 'Status tidak valid';
   }
-  $datePonOk = (bool) strtotime($old['date_pon']);
+
+  $datePonOk = $old['date_pon'] === '' ? false : (bool) strtotime($old['date_pon']);
   $dateFinishOk = $old['date_finish'] === '' ? true : (bool) strtotime($old['date_finish']);
   if (!$datePonOk) {
-    $errors['date_pon'] = 'Tanggal PON tidak valid';
+    $errors['date_pon'] = 'Tanggal PON tidak valid atau wajib diisi';
   }
   if (!$dateFinishOk) {
     $errors['date_finish'] = 'Tanggal Finish tidak valid';
   }
+
   if ($old['alamat_kontrak'] === '') {
     $errors['alamat_kontrak'] = 'Alamat Kontrak wajib diisi';
   }
@@ -116,14 +122,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
   // Simpan ke database jika valid
   if (!$errors) {
-    require_once 'config.php';
     try {
+      // Data untuk insert (tanpa project_manager karena tidak ada di schema database)
       $data = [
         'pon' => $old['pon'],
         'type' => $old['type'],
         'client' => $old['client'],
         'nama_proyek' => $old['nama_proyek'],
-        'project_manager' => $old['project_manager'],
         'job_type' => $old['job_type'],
         'berat' => (float) $old['berat'],
         'qty' => (int) $old['qty'],
@@ -135,15 +140,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'no_contract' => $old['no_contract'],
         'pic' => $old['pic'],
         'owner' => $old['owner'],
-        'created_at' => date('c'),
       ];
-      insert('pon', $data);
 
+      $insertedId = insert('pon', $data);
+
+      // Create default tasks for each division
+      $divisions = ['Engineering', 'Logistik', 'Pabrikasi', 'Purchasing'];
+      foreach ($divisions as $division) {
+        $taskData = [
+          'pon' => $old['pon'],
+          'division' => $division,
+          'title' => 'Task awal - ' . $division,
+          'assignee' => '',
+          'priority' => 'Medium',
+          'progress' => 0,
+          'status' => 'To Do',
+          'start_date' => date('Y-m-d', strtotime($old['date_pon'])),
+          'due_date' => $old['date_finish'] ? date('Y-m-d', strtotime($old['date_finish'])) : null,
+        ];
+        insert('tasks', $taskData);
+      }
 
       header('Location: pon.php?added=1');
       exit;
     } catch (Exception $e) {
       $errors['general'] = 'Gagal menyimpan data: ' . $e->getMessage();
+      error_log('PON Insert Error: ' . $e->getMessage());
     }
   }
 }
@@ -215,7 +237,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       text-decoration: none;
       padding: 10px 14px;
       border-radius: 10px;
-      font-weight: 600
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+    }
+
+    .btn:hover {
+      background: #1e40af;
     }
 
     .btn.secondary {
@@ -226,6 +254,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     .error {
       color: #fecaca;
       font-size: 12px
+    }
+
+    .general-error {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #fecaca;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 16px;
     }
   </style>
 </head>
@@ -239,10 +276,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
       </div>
       <nav class="nav">
-        <a class="<?= $activeMenu==='Dashboard'?'active':'' ?>" href="dashboard.php"><span class="icon bi-house"></span> Dashboard</a>
-        <a class="<?= $activeMenu==='PON'?'active':'' ?>" href="pon.php"><span class="icon bi-journal-text"></span> PON</a>
-        <a class="<?= $activeMenu==='Task List'?'active':'' ?>" href="tasklist.php"><span class="icon bi-list-check"></span> Task List</a>
-        <a class="<?= $activeMenu==='Progres Divisi'?'active':'' ?>" href="progres_divisi.php"><span class="icon bi-bar-chart"></span> Progres Divisi</a>
+        <a class="<?= $activeMenu === 'Dashboard' ? 'active' : '' ?>" href="dashboard.php"><span class="icon bi-house"></span> Dashboard</a>
+        <a class="<?= $activeMenu === 'PON' ? 'active' : '' ?>" href="pon.php"><span class="icon bi-journal-text"></span> PON</a>
+        <a class="<?= $activeMenu === 'Task List' ? 'active' : '' ?>" href="tasklist.php"><span class="icon bi-list-check"></span> Task List</a>
+        <a class="<?= $activeMenu === 'Progres Divisi' ? 'active' : '' ?>" href="progres_divisi.php"><span class="icon bi-bar-chart"></span> Progres Divisi</a>
         <a href="logout.php"><span class="icon bi-box-arrow-right"></span> Logout</a>
       </nav>
     </aside>
@@ -262,6 +299,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       <section class="section">
         <div class="hd">Form PON Baru</div>
         <div class="bd">
+          <?php if (isset($errors['general'])): ?>
+            <div class="general-error"><?= h($errors['general']) ?></div>
+          <?php endif; ?>
+
           <form method="post" class="form" autocomplete="off">
             <div class="field">
               <label class="label" for="pon">Kode PON</label>
@@ -383,8 +424,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="error"><?= h($errors['status']) ?></div><?php endif; ?>
             </div>
 
-
-
             <div class="field" style="grid-column:1/-1">
               <div class="actions">
                 <button type="submit" class="btn">Simpan</button>
@@ -400,14 +439,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   </div>
 
   <script>
-    (function () {
+    (function() {
       const el = document.getElementById('clock');
       if (!el) return;
       const tz = 'Asia/Jakarta';
       let now = new Date(Number(el.dataset.epoch) * 1000);
+
       function tick() {
         now = new Date(now.getTime() + 1000);
-        el.textContent = now.toLocaleString('id-ID', { timeZone: tz, hour12: false });
+        el.textContent = now.toLocaleString('id-ID', {
+          timeZone: tz,
+          hour12: false
+        });
       }
       tick();
       setInterval(tick, 1000);

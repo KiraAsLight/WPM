@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 session_start();
@@ -75,7 +76,7 @@ $tasksForPon = array_values(array_filter($tasks, fn($t) => ($t['pon'] ?? '') ===
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Progres Divisi - <?= h($appName) ?></title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
   <link rel="stylesheet"
     href="assets/css/app.css?v=<?= file_exists('assets/css/app.css') ? filemtime('assets/css/app.css') : time() ?>">
   <link rel="stylesheet"
@@ -172,13 +173,14 @@ $tasksForPon = array_values(array_filter($tasks, fn($t) => ($t['pon'] ?? '') ===
     <aside class="sidebar">
       <div class="brand">
         <div class="logo" aria-hidden="true"></div>
-        
+
       </div>
       <nav class="nav">
-        <a class="<?= $activeMenu==='Dashboard'?'active':'' ?>" href="dashboard.php"><span class="icon bi-house"></span> Dashboard</a>
-        <a class="<?= $activeMenu==='PON'?'active':'' ?>" href="pon.php"><span class="icon bi-journal-text"></span> PON</a>
-        <a class="<?= $activeMenu==='Task List'?'active':'' ?>" href="tasklist.php"><span class="icon bi-list-check"></span> Task List</a>
-        <a class="<?= $activeMenu==='Progres Divisi'?'active':'' ?>" href="progres_divisi.php"><span class="icon bi-bar-chart"></span> Progres Divisi</a>
+        <a class="<?= $activeMenu === 'Dashboard' ? 'active' : '' ?>" href="dashboard.php"><span class="icon bi-house"></span> Dashboard</a>
+        <a class="<?= $activeMenu === 'PON' ? 'active' : '' ?>" href="pon.php"><span class="icon bi-journal-text"></span> PON</a>
+        <a class="<?= $activeMenu === 'Task List' ? 'active' : '' ?>" href="tasklist.php"><span class="icon bi-list-check"></span> Task List</a>
+        <a class="<?= $activeMenu === 'Progres Divisi' ? 'active' : '' ?>" href="progres_divisi.php"><span class="icon bi-bar-chart"></span> Progres Divisi</a>
+        <a href="logout.php"><span class="icon bi-box-arrow-right"></span> Logout</a>
       </nav>
     </aside>
 
@@ -203,10 +205,11 @@ $tasksForPon = array_values(array_filter($tasks, fn($t) => ($t['pon'] ?? '') ===
               onchange="location.href='progres_divisi.php?pon='+encodeURIComponent(this.value)">
               <?php if (!$ponList): ?>
                 <option value="">(Belum ada PON)</option>
-              <?php else:
+                <?php else:
                 foreach ($ponList as $p): ?>
                   <option value="<?= h($p) ?>" <?= $p === $selPon ? 'selected' : '' ?>><?= strtoupper(h($p)) ?></option>
-                <?php endforeach; endif; ?>
+              <?php endforeach;
+              endif; ?>
             </select>
             <?php if ($msg): ?><span class="notice"><?= h($msg) ?></span><?php endif; ?>
           </div>
@@ -216,9 +219,9 @@ $tasksForPon = array_values(array_filter($tasks, fn($t) => ($t['pon'] ?? '') ===
               <?php foreach ($divisions as $d):
                 $v = (int) ($divAgg[$d] ?? 0); ?>
                 <div class="prog-item">
-                <div class="ring" style="--val: <?= $v ?>">
-                  <span style="position:absolute;top:50%;left:50%;transform:translate(-50%, -50%);font-weight:bold;color:#fff;"><?= $v ?>%</span>
-                </div>
+                  <div class="ring" style="--val: <?= $v ?>">
+                    <span style="position:absolute;top:50%;left:50%;transform:translate(-50%, -50%);font-weight:bold;color:#fff;"><?= $v ?>%</span>
+                  </div>
                   <div><?= h($d) ?></div>
                 </div>
               <?php endforeach; ?>
@@ -283,22 +286,39 @@ $tasksForPon = array_values(array_filter($tasks, fn($t) => ($t['pon'] ?? '') ===
 
   <script>
     // Jam server (berjalan) WIB
-    (function () {
+    (function() {
       const el = document.getElementById('clock');
       if (!el) return;
       const tz = 'Asia/Jakarta';
       let now = new Date(Number(el.dataset.epoch) * 1000);
-      function tick() { now = new Date(now.getTime() + 1000); el.textContent = now.toLocaleString('id-ID', { timeZone: tz, hour12: false }); }
-      tick(); setInterval(tick, 1000);
+
+      function tick() {
+        now = new Date(now.getTime() + 1000);
+        el.textContent = now.toLocaleString('id-ID', {
+          timeZone: tz,
+          hour12: false
+        });
+      }
+      tick();
+      setInterval(tick, 1000);
     })();
 
     // Animasi cincin progres sederhana
-    (function () {
+    (function() {
       const rings = document.querySelectorAll('.ring');
       rings.forEach(el => {
         const target = Number(getComputedStyle(el).getPropertyValue('--val')) || 0;
-        let cur = 0; const step = Math.max(1, Math.round(target / 24));
-        const tm = setInterval(() => { cur += step; if (cur >= target) { cur = target; clearInterval(tm); } el.style.setProperty('--val', String(cur)); el.querySelector('span').textContent = cur + '%'; }, 24);
+        let cur = 0;
+        const step = Math.max(1, Math.round(target / 24));
+        const tm = setInterval(() => {
+          cur += step;
+          if (cur >= target) {
+            cur = target;
+            clearInterval(tm);
+          }
+          el.style.setProperty('--val', String(cur));
+          el.querySelector('span').textContent = cur + '%';
+        }, 24);
       });
     })();
   </script>

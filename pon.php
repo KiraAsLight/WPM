@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 session_start();
@@ -15,12 +16,25 @@ $activeMenu = 'PON';
 $server = $_SERVER['SERVER_SOFTWARE'] ?? 'Apache';
 $nowEpoch = time();
 
+// Handle delete request first
+if (isset($_GET['delete'])) {
+  $delPon = $_GET['delete'];
+  try {
+    delete('pon', 'pon = :pon', ['pon' => $delPon]);
+    header('Location: pon.php?deleted=1');
+    exit;
+  } catch (Exception $e) {
+    header('Location: pon.php?error=delete_failed');
+    exit;
+  }
+}
+
 // Muat PON dari database
 $pon = fetchAll('SELECT * FROM pon ORDER BY date_pon DESC');
 
 // Hitung ringkas
 $totalBerat = array_sum(array_map(fn($r) => (float) $r['berat'] * (int) ($r['qty'] ?? 1), $pon));
-$avgProgress = (int) round(array_sum(array_map(fn($r) => (int) $r['progress'], $pon)) / max(1, count($pon)));
+$avgProgress = count($pon) > 0 ? (int) round(array_sum(array_map(fn($r) => (int) $r['progress'], $pon)) / count($pon)) : 0;
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -103,21 +117,27 @@ $avgProgress = (int) round(array_sum(array_map(fn($r) => (int) $r['progress'], $
     .btn-danger:hover {
       background: #b91c1c
     }
+
+    .action-buttons {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
   </style>
 </head>
 
 <body>
   <div class="layout">
-     <!-- Sidebar -->
-   <aside class="sidebar">
+    <!-- Sidebar -->
+    <aside class="sidebar">
       <div class="brand">
         <div class="logo" aria-hidden="true"></div>
       </div>
       <nav class="nav">
-        <a class="<?= $activeMenu==='Dashboard'?'active':'' ?>" href="dashboard.php"><span class="icon bi-house"></span> Dashboard</a>
-        <a class="<?= $activeMenu==='PON'?'active':'' ?>" href="pon.php"><span class="icon bi-journal-text"></span> PON</a>
-        <a class="<?= $activeMenu==='Task List'?'active':'' ?>" href="tasklist.php"><span class="icon bi-list-check"></span> Task List</a>
-        <a class="<?= $activeMenu==='Progres Divisi'?'active':'' ?>" href="progres_divisi.php"><span class="icon bi-bar-chart"></span> Progres Divisi</a>
+        <a class="<?= $activeMenu === 'Dashboard' ? 'active' : '' ?>" href="dashboard.php"><span class="icon bi-house"></span> Dashboard</a>
+        <a class="<?= $activeMenu === 'PON' ? 'active' : '' ?>" href="pon.php"><span class="icon bi-journal-text"></span> PON</a>
+        <a class="<?= $activeMenu === 'Task List' ? 'active' : '' ?>" href="tasklist.php"><span class="icon bi-list-check"></span> Task List</a>
+        <a class="<?= $activeMenu === 'Progres Divisi' ? 'active' : '' ?>" href="progres_divisi.php"><span class="icon bi-bar-chart"></span> Progres Divisi</a>
         <a href="logout.php"><span class="icon bi-box-arrow-right"></span> Logout</a>
       </nav>
     </aside>
@@ -167,6 +187,18 @@ $avgProgress = (int) round(array_sum(array_map(fn($r) => (int) $r['progress'], $
           <?php if (isset($_GET['added'])): ?>
             <div class="notice">PON baru berhasil ditambahkan.</div>
           <?php endif; ?>
+          <?php if (isset($_GET['deleted'])): ?>
+            <div class="notice">PON berhasil dihapus.</div>
+          <?php endif; ?>
+          <?php if (isset($_GET['updated'])): ?>
+            <div class="notice">PON berhasil diupdate.</div>
+          <?php endif; ?>
+          <?php if (isset($_GET['error']) && $_GET['error'] === 'delete_failed'): ?>
+            <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #fecaca; padding: 10px; border-radius: 10px; margin-bottom: 10px;">
+              Gagal menghapus PON.
+            </div>
+          <?php endif; ?>
+
           <div class="table-actions">
             <input class="input" id="q" type="search" placeholder="Cari PON/Type/Status..." oninput="filterTable()">
             <div style="display:flex;gap:8px;align-items:center">
@@ -175,41 +207,65 @@ $avgProgress = (int) round(array_sum(array_map(fn($r) => (int) $r['progress'], $
             </div>
           </div>
           <div style="overflow:auto">
-  <table id="ponTable">
-    <thead>
-      <tr>
-        <th>No</th>
-        <th>PON</th>
-        <th>Client</th>
-        <th>Type</th>
-        <th>Type Pekerjaan</th>
-        <th>QTY</th>
-        <th>Berat Satuan</th>
-        <th>Total Berat</th>
-        <th>Progres</th>
-        <th>PIC</th>
-        <th>Owner</th>
-        <th>Aksi</th>
-      </tr>
-    </thead>
-    <tbody>
-      <?php foreach ($pon as $i => $r):
-        $status = strtolower($r['status']);
-        $cls = $status === 'selesai' ? 'b-ok' : ($status === 'pending' ? 'b-danger' : 'b-warn');
-        ?>
-        <tr>
-          <td><?= $i + 1 ?></td>
-          <td><?= h($r['pon']) ?></td>
-          <td><?= h($r['client'] ?? '-') ?></td>
-          <td><?= h($r['type']) ?></td>
-          <td><?= h($r['job_type'] ?? '-') ?></td>
-          <td><?= h((int) $r['qty']) ?></td>
-          <td><?= h(kg((int) $r['berat'])) ?></td>
-          <td><?= h(kg((int) $r['berat'] * (int) $r['qty'])) ?></td>
-          <td><?= h(pct((int) $r['progress'])) ?></td>
-      <?php endforeach; ?>
-    </tbody>
-  </table>
+            <table id="ponTable">
+              <thead>
+                <tr>
+                  <th>No</th>
+                  <th>PON</th>
+                  <th>Client</th>
+                  <th>Type</th>
+                  <th>Type Pekerjaan</th>
+                  <th>QTY</th>
+                  <th>Berat Satuan</th>
+                  <th>Total Berat</th>
+                  <th>Progres</th>
+                  <th>Status</th>
+                  <th>PIC</th>
+                  <th>Owner</th>
+                  <th>Aksi</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php if (empty($pon)): ?>
+                  <tr>
+                    <td colspan="13" style="text-align: center; color: var(--muted);">Belum ada data PON</td>
+                  </tr>
+                <?php else: ?>
+                  <?php foreach ($pon as $i => $r):
+                    $status = strtolower($r['status'] ?? 'progres');
+                    $cls = $status === 'selesai' ? 'b-ok' : ($status === 'pending' || $status === 'delayed' ? 'b-danger' : 'b-warn');
+                  ?>
+                    <tr>
+                      <td><?= $i + 1 ?></td>
+                      <td><?= h($r['pon'] ?? '-') ?></td>
+                      <td><?= h($r['client'] ?? '-') ?></td>
+                      <td><?= h($r['type'] ?? '-') ?></td>
+                      <td><?= h($r['job_type'] ?? '-') ?></td>
+                      <td><?= h((int) ($r['qty'] ?? 0)) ?></td>
+                      <td><?= h(kg((float) ($r['berat'] ?? 0))) ?></td>
+                      <td><?= h(kg((float) ($r['berat'] ?? 0) * (int) ($r['qty'] ?? 0))) ?></td>
+                      <td><?= h(pct((int) ($r['progress'] ?? 0))) ?></td>
+                      <td><span class="badge <?= $cls ?>"><?= h(ucfirst($status)) ?></span></td>
+                      <td><?= h($r['pic'] ?? '-') ?></td>
+                      <td><?= h($r['owner'] ?? '-') ?></td>
+                      <td>
+                        <div class="action-buttons">
+                          <a href="pon_edit.php?pon=<?= urlencode($r['pon'] ?? '') ?>" class="btn" title="Edit PON">
+                            <i class="bi bi-pencil"></i>
+                          </a>
+                          <a href="pon.php?delete=<?= urlencode($r['pon'] ?? '') ?>"
+                            class="btn btn-danger"
+                            title="Hapus PON"
+                            onclick="return confirm('Yakin ingin menghapus PON <?= h($r['pon'] ?? '') ?>? Data ini tidak dapat dikembalikan.')">
+                            <i class="bi bi-trash"></i>
+                          </a>
+                        </div>
+                      </td>
+                    </tr>
+                  <?php endforeach; ?>
+                <?php endif; ?>
+              </tbody>
+            </table>
           </div>
         </div>
       </section>
@@ -219,14 +275,18 @@ $avgProgress = (int) round(array_sum(array_map(fn($r) => (int) $r['progress'], $
   </div>
 
   <script>
-    (function () {
+    (function() {
       const el = document.getElementById('clock');
       if (!el) return;
       const tz = 'Asia/Jakarta';
       let now = new Date(Number(el.dataset.epoch) * 1000);
+
       function tick() {
         now = new Date(now.getTime() + 1000);
-        el.textContent = now.toLocaleString('id-ID', { timeZone: tz, hour12: false });
+        el.textContent = now.toLocaleString('id-ID', {
+          timeZone: tz,
+          hour12: false
+        });
       }
       tick();
       setInterval(tick, 1000);
@@ -241,15 +301,6 @@ $avgProgress = (int) round(array_sum(array_map(fn($r) => (int) $r['progress'], $
       });
     }
   </script>
-<?php
-// Handle delete request
-if (isset($_GET['delete'])) {
-  $delPon = $_GET['delete'];
-  delete('pon', 'pon = :pon', ['pon' => $delPon]);
-  header('Location: pon.php');
-  exit;
-}
-?>
-
 </body>
+
 </html>

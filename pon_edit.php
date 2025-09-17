@@ -1,34 +1,32 @@
 <?php
+
 declare(strict_types=1);
 
-date_default_timezone_set('Asia/Jakarta');
+session_start();
+if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
+  header('Location: index.php');
+  exit;
+}
 
-$appName = 'PT. Wiratama Globalindo Jaya';
+require_once 'config.php';
+
+$appName = APP_NAME;
 $activeMenu = 'PON';
 $server = $_SERVER['SERVER_SOFTWARE'] ?? 'Apache';
 $nowEpoch = time();
 
-function h(string $s): string
-{
-  return htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
-}
-
-// Load PON data
+// Load PON data dari database
 $ponCode = isset($_GET['pon']) ? trim($_GET['pon']) : '';
 $ponRecord = null;
-$dataPath = __DIR__ . '/assets/data/pon.json';
-if ($ponCode && file_exists($dataPath)) {
-  $json = file_get_contents($dataPath);
-  $arr = json_decode($json, true);
-  if (is_array($arr)) {
-    foreach ($arr as $r) {
-      if (strcasecmp((string)($r['pon'] ?? ''), $ponCode) === 0) {
-        $ponRecord = $r;
-        break;
-      }
-    }
+
+if ($ponCode) {
+  try {
+    $ponRecord = fetchOne('SELECT * FROM pon WHERE pon = ?', [$ponCode]);
+  } catch (Exception $e) {
+    error_log('Error fetching PON: ' . $e->getMessage());
   }
 }
+
 if (!$ponRecord) {
   header('Location: pon.php?error=notfound');
   exit;
@@ -40,7 +38,6 @@ $old = [
   'type' => (string)($ponRecord['type'] ?? ''),
   'client' => (string)($ponRecord['client'] ?? ''),
   'nama_proyek' => (string)($ponRecord['nama_proyek'] ?? ''),
-  'project_manager' => (string)($ponRecord['project_manager'] ?? ''),
   'job_type' => (string)($ponRecord['job_type'] ?? ''),
   'berat' => (string)($ponRecord['berat'] ?? ''),
   'qty' => (string)($ponRecord['qty'] ?? ''),
@@ -59,7 +56,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $old['type'] = trim($_POST['type'] ?? '');
   $old['client'] = trim($_POST['client'] ?? '');
   $old['nama_proyek'] = trim($_POST['nama_proyek'] ?? '');
-  $old['project_manager'] = trim($_POST['project_manager'] ?? '');
   $old['job_type'] = trim($_POST['job_type'] ?? '');
   $old['berat'] = trim($_POST['berat'] ?? '');
   $old['qty'] = trim($_POST['qty'] ?? '');
@@ -72,21 +68,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $old['owner'] = trim($_POST['owner'] ?? '');
 
   // Validasi
-  if ($old['pon'] === '')
+  if ($old['pon'] === '') {
     $errors['pon'] = 'Kode PON wajib diisi';
-  if ($old['type'] === '')
-    $errors['type'] = 'Type wajib diisi';
-  if ($old['client'] === '')
-    $errors['client'] = 'Client wajib diisi';
-  if ($old['nama_proyek'] === '')
-    $errors['nama_proyek'] = 'Nama Proyek wajib diisi';
-  if ($old['project_manager'] === '')
-    $errors['project_manager'] = 'Project Manager wajib diisi';
+  } else {
+    // Cek duplikasi PON (kecuali PON yang sedang diedit)
+    try {
+      $existing = fetchOne('SELECT id FROM pon WHERE pon = ? AND id != ?', [$old['pon'], $ponRecord['id']]);
+      if ($existing) {
+        $errors['pon'] = 'Kode PON sudah ada';
+      }
+    } catch (Exception $e) {
+      $errors['pon'] = 'Error checking PON: ' . $e->getMessage();
+    }
+  }
+
+  if ($old['type'] === '') $errors['type'] = 'Type wajib diisi';
+  if ($old['client'] === '') $errors['client'] = 'Client wajib diisi';
+  if ($old['nama_proyek'] === '') $errors['nama_proyek'] = 'Nama Proyek wajib diisi';
+
   $jobTypes = ['pengadaan', 'pengiriman', 'pemasangan', 'konsultan'];
-  if ($old['job_type'] === '')
+  if ($old['job_type'] === '') {
     $errors['job_type'] = 'Type pekerjaan wajib diisi';
-  elseif (!in_array($old['job_type'], $jobTypes, true))
+  } elseif (!in_array($old['job_type'], $jobTypes, true)) {
     $errors['job_type'] = 'Type pekerjaan tidak valid';
+  }
 
   if ($old['berat'] === '' || !is_numeric($old['berat']) || (float) $old['berat'] < 0) {
     $errors['berat'] = 'Berat harus angka >= 0';
@@ -101,81 +106,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $errors['status'] = 'Status tidak valid';
   }
 
-  $datePonOk = (bool) strtotime($old['date_pon']);
+  $datePonOk = $old['date_pon'] === '' ? false : (bool) strtotime($old['date_pon']);
   $dateFinishOk = $old['date_finish'] === '' ? true : (bool) strtotime($old['date_finish']);
-  if (!$datePonOk)
-    $errors['date_pon'] = 'Tanggal PON tidak valid';
-  if (!$dateFinishOk)
-    $errors['date_finish'] = 'Tanggal Finish tidak valid';
+  if (!$datePonOk) $errors['date_pon'] = 'Tanggal PON tidak valid atau wajib diisi';
+  if (!$dateFinishOk) $errors['date_finish'] = 'Tanggal Finish tidak valid';
 
-  if ($old['alamat_kontrak'] === '')
-    $errors['alamat_kontrak'] = 'Alamat Kontrak wajib diisi';
-  if ($old['no_contract'] === '')
-    $errors['no_contract'] = 'No Contract wajib diisi';
-  if ($old['pic'] === '')
-    $errors['pic'] = 'PIC wajib diisi';
-  if ($old['owner'] === '')
-    $errors['owner'] = 'Owner wajib diisi';
+  if ($old['alamat_kontrak'] === '') $errors['alamat_kontrak'] = 'Alamat Kontrak wajib diisi';
+  if ($old['no_contract'] === '') $errors['no_contract'] = 'No Contract wajib diisi';
+  if ($old['pic'] === '') $errors['pic'] = 'PIC wajib diisi';
+  if ($old['owner'] === '') $errors['owner'] = 'Owner wajib diisi';
 
   // Simpan jika valid
   if (!$errors) {
-    $dataDir = __DIR__ . '/assets/data';
-    $dataPath = $dataDir . '/pon.json';
-    $list = [];
-    if (file_exists($dataPath)) {
-      $json = file_get_contents($dataPath);
-      $tmp = json_decode($json, true);
-      if (is_array($tmp))
-        $list = $tmp;
-    }
-    // Find and update the record
-    $found = false;
-    foreach ($list as &$r) {
-      if (strcasecmp((string)($r['pon'] ?? ''), $ponCode) === 0) {
-        $r['pon'] = $old['pon'];
-        $r['type'] = $old['type'];
-        $r['client'] = $old['client'];
-        $r['nama_proyek'] = $old['nama_proyek'];
-        $r['project_manager'] = $old['project_manager'];
-        $r['job_type'] = $old['job_type'];
-        $r['berat'] = (float) $old['berat'];
-        $r['qty'] = (int) $old['qty'];
-        $r['date_pon'] = date('Y-m-d', strtotime($old['date_pon']));
-        $r['date_finish'] = $old['date_finish'] ? date('Y-m-d', strtotime($old['date_finish'])) : null;
-        $r['status'] = $old['status'];
-        $r['alamat_kontrak'] = $old['alamat_kontrak'];
-        $r['no_contract'] = $old['no_contract'];
-        $r['pic'] = $old['pic'];
-        $r['owner'] = $old['owner'];
-        $r['updated_at'] = date('c');
-        $found = true;
-        break;
-      }
-    }
-    if ($found) {
-      file_put_contents($dataPath, json_encode($list, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), LOCK_EX);
+    try {
+      $updateData = [
+        'pon' => $old['pon'],
+        'type' => $old['type'],
+        'client' => $old['client'],
+        'nama_proyek' => $old['nama_proyek'],
+        'job_type' => $old['job_type'],
+        'berat' => (float) $old['berat'],
+        'qty' => (int) $old['qty'],
+        'date_pon' => date('Y-m-d', strtotime($old['date_pon'])),
+        'date_finish' => $old['date_finish'] ? date('Y-m-d', strtotime($old['date_finish'])) : null,
+        'status' => $old['status'],
+        'alamat_kontrak' => $old['alamat_kontrak'],
+        'no_contract' => $old['no_contract'],
+        'pic' => $old['pic'],
+        'owner' => $old['owner'],
+      ];
 
-      // Update tasks if PON code changed
-      if (strcasecmp($old['pon'], $ponCode) !== 0) {
-        $tasksPath = __DIR__ . '/assets/data/tasks.json';
-        $tasks = [];
-        if (file_exists($tasksPath)) {
-          $tmp = json_decode((string) file_get_contents($tasksPath), true);
-          if (is_array($tmp))
-            $tasks = $tmp;
-        }
-        foreach ($tasks as &$t) {
-          if (strcasecmp((string)($t['pon'] ?? ''), $ponCode) === 0) {
-            $t['pon'] = $old['pon'];
-          }
-        }
-        file_put_contents($tasksPath, json_encode($tasks, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), LOCK_EX);
+      $rowsUpdated = update('pon', $updateData, 'id = :id', ['id' => $ponRecord['id']]);
+
+      // Update tasks jika PON code berubah
+      if ($old['pon'] !== $ponCode) {
+        update('tasks', ['pon' => $old['pon']], 'pon = :old_pon', ['old_pon' => $ponCode]);
       }
 
-      header('Location: pon.php?updated=1');
-      exit;
-    } else {
-      $errors['general'] = 'PON tidak ditemukan untuk update';
+      // Auto-update progress based on status
+      if (function_exists('updateProgressByStatus')) {
+        updateProgressByStatus($old['pon'], $old['status']);
+      }
+
+      if ($rowsUpdated > 0) {
+        header('Location: pon.php?updated=1');
+        exit;
+      } else {
+        $errors['general'] = 'Tidak ada perubahan data yang disimpan';
+      }
+    } catch (Exception $e) {
+      $errors['general'] = 'Gagal mengupdate data: ' . $e->getMessage();
+      error_log('PON Update Error: ' . $e->getMessage());
     }
   }
 }
@@ -227,12 +208,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       border-radius: 8px
     }
 
-    .row {
-      display: flex;
-      gap: 10px;
-      align-items: center
-    }
-
     .actions {
       display: flex;
       gap: 10px;
@@ -247,17 +222,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       text-decoration: none;
       padding: 10px 14px;
       border-radius: 10px;
-      font-weight: 600
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+    }
+
+    .btn:hover {
+      background: #1e40af;
     }
 
     .btn.secondary {
       background: transparent;
-      color: #cbd5e1
+      color: #cbd5e1;
+      border: 1px solid var(--border);
+    }
+
+    .btn.secondary:hover {
+      background: rgba(255, 255, 255, 0.05);
     }
 
     .error {
       color: #fecaca;
       font-size: 12px
+    }
+
+    .general-error {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #fecaca;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+    }
+
+    .success {
+      background: rgba(34, 197, 94, .12);
+      color: #86efac;
+      border: 1px solid rgba(34, 197, 94, .35);
+      padding: 10px;
+      border-radius: 10px;
+      margin-bottom: 10px
     }
   </style>
 </head>
@@ -267,15 +271,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="brand">
-        <div class="logo" aria-hidden="true">
-          <img src="assets/img/Logo.jpg" alt="Logo" style="height:50px;">
-        </div>
+        <div class="logo" aria-hidden="true"></div>
       </div>
       <nav class="nav">
-        <a class="<?= $activeMenu==='Dashboard'?'active':'' ?>" href="dashboard.php"><span class="icon bi-house"></span> Dashboard</a>
-        <a class="<?= $activeMenu==='PON'?'active':'' ?>" href="pon.php"><span class="icon bi-journal-text"></span> PON</a>
-        <a class="<?= $activeMenu==='Task List'?'active':'' ?>" href="tasklist.php"><span class="icon bi-list-check"></span> Task List</a>
-        <a class="<?= $activeMenu==='Progres Divisi'?'active':'' ?>" href="progres_divisi.php"><span class="icon bi-bar-chart"></span> Progres Divisi</a>
+        <a class="<?= $activeMenu === 'Dashboard' ? 'active' : '' ?>" href="dashboard.php"><span class="icon bi-house"></span> Dashboard</a>
+        <a class="<?= $activeMenu === 'PON' ? 'active' : '' ?>" href="pon.php"><span class="icon bi-journal-text"></span> PON</a>
+        <a class="<?= $activeMenu === 'Task List' ? 'active' : '' ?>" href="tasklist.php"><span class="icon bi-list-check"></span> Task List</a>
+        <a class="<?= $activeMenu === 'Progres Divisi' ? 'active' : '' ?>" href="progres_divisi.php"><span class="icon bi-bar-chart"></span> Progres Divisi</a>
+        <a href="logout.php"><span class="icon bi-box-arrow-right"></span> Logout</a>
       </nav>
     </aside>
 
@@ -295,8 +298,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="hd">Form Edit PON</div>
         <div class="bd">
           <?php if (isset($errors['general'])): ?>
-            <div class="error" style="margin-bottom:12px"><?= h($errors['general']) ?></div>
+            <div class="general-error"><?= h($errors['general']) ?></div>
           <?php endif; ?>
+
           <form method="post" class="form" autocomplete="off">
             <div class="field">
               <label class="label" for="pon">Kode PON</label>
@@ -324,13 +328,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
               <input class="input" id="nama_proyek" name="nama_proyek" value="<?= h($old['nama_proyek']) ?>" required>
               <?php if (isset($errors['nama_proyek'])): ?>
                 <div class="error"><?= h($errors['nama_proyek']) ?></div><?php endif; ?>
-            </div>
-
-            <div class="field">
-              <label class="label" for="project_manager">Project Manager</label>
-              <input class="input" id="project_manager" name="project_manager" value="<?= h($old['project_manager']) ?>" required>
-              <?php if (isset($errors['project_manager'])): ?>
-                <div class="error"><?= h($errors['project_manager']) ?></div><?php endif; ?>
             </div>
 
             <div class="field">
@@ -378,6 +375,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
 
             <div class="field">
+              <label class="label" for="status">Status</label>
+              <select class="select" id="status" name="status">
+                <?php foreach (['Selesai', 'Progres', 'Pending', 'Delayed'] as $st): ?>
+                  <option value="<?= h($st) ?>" <?= $old['status'] === $st ? 'selected' : '' ?>><?= h($st) ?></option>
+                <?php endforeach; ?>
+              </select>
+              <?php if (isset($errors['status'])): ?>
+                <div class="error"><?= h($errors['status']) ?></div><?php endif; ?>
+            </div>
+
+            <div class="field">
               <label class="label" for="alamat_kontrak">Alamat Kontrak</label>
               <textarea class="input" id="alamat_kontrak" name="alamat_kontrak" rows="3" required><?= h($old['alamat_kontrak']) ?></textarea>
               <?php if (isset($errors['alamat_kontrak'])): ?>
@@ -405,17 +413,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="error"><?= h($errors['owner']) ?></div><?php endif; ?>
             </div>
 
-            <div class="field">
-              <label class="label" for="status">Status</label>
-              <select class="select" id="status" name="status">
-                <?php foreach (['Selesai', 'Progres', 'Pending', 'Delayed'] as $st): ?>
-                  <option value="<?= h($st) ?>" <?= $old['status'] === $st ? 'selected' : '' ?>><?= h($st) ?></option>
-                <?php endforeach; ?>
-              </select>
-              <?php if (isset($errors['status'])): ?>
-                <div class="error"><?= h($errors['status']) ?></div><?php endif; ?>
-            </div>
-
             <div class="field" style="grid-column:1/-1">
               <div class="actions">
                 <button type="submit" class="btn">Update</button>
@@ -431,14 +428,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   </div>
 
   <script>
-    (function () {
+    (function() {
       const el = document.getElementById('clock');
       if (!el) return;
       const tz = 'Asia/Jakarta';
       let now = new Date(Number(el.dataset.epoch) * 1000);
+
       function tick() {
         now = new Date(now.getTime() + 1000);
-        el.textContent = now.toLocaleString('id-ID', { timeZone: tz, hour12: false });
+        el.textContent = now.toLocaleString('id-ID', {
+          timeZone: tz,
+          hour12: false
+        });
       }
       tick();
       setInterval(tick, 1000);

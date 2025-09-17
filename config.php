@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 // Database Configuration
@@ -21,7 +22,8 @@ define('PDO_OPTIONS', [
  * @return PDO
  * @throws PDOException
  */
-function getDBConnection(): PDO {
+function getDBConnection(): PDO
+{
     static $pdo = null;
 
     if ($pdo === null) {
@@ -43,7 +45,8 @@ function getDBConnection(): PDO {
  *
  * @return bool
  */
-function testDBConnection(): bool {
+function testDBConnection(): bool
+{
     try {
         $pdo = getDBConnection();
         $stmt = $pdo->query('SELECT 1');
@@ -60,7 +63,8 @@ function testDBConnection(): bool {
  * @param array $params
  * @return PDOStatement
  */
-function executeQuery(string $sql, array $params = []): PDOStatement {
+function executeQuery(string $sql, array $params = []): PDOStatement
+{
     $pdo = getDBConnection();
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
@@ -74,7 +78,8 @@ function executeQuery(string $sql, array $params = []): PDOStatement {
  * @param array $params
  * @return array|null
  */
-function fetchOne(string $sql, array $params = []): ?array {
+function fetchOne(string $sql, array $params = []): ?array
+{
     $stmt = executeQuery($sql, $params);
     return $stmt->fetch() ?: null;
 }
@@ -86,7 +91,8 @@ function fetchOne(string $sql, array $params = []): ?array {
  * @param array $params
  * @return array
  */
-function fetchAll(string $sql, array $params = []): array {
+function fetchAll(string $sql, array $params = []): array
+{
     $stmt = executeQuery($sql, $params);
     return $stmt->fetchAll();
 }
@@ -98,7 +104,8 @@ function fetchAll(string $sql, array $params = []): array {
  * @param array $data
  * @return int
  */
-function insert(string $table, array $data): int {
+function insert(string $table, array $data): int
+{
     $pdo = getDBConnection();
     $columns = implode(', ', array_keys($data));
     $placeholders = ':' . implode(', :', array_keys($data));
@@ -117,7 +124,8 @@ function insert(string $table, array $data): int {
  * @param array $whereParams
  * @return int Number of affected rows
  */
-function update(string $table, array $data, string $where, array $whereParams = []): int {
+function update(string $table, array $data, string $where, array $whereParams = []): int
+{
     $pdo = getDBConnection();
     $set = implode(', ', array_map(fn($col) => "$col = :$col", array_keys($data)));
     $sql = "UPDATE $table SET $set WHERE $where";
@@ -135,7 +143,8 @@ function update(string $table, array $data, string $where, array $whereParams = 
  * @param array $params
  * @return int Number of affected rows
  */
-function delete(string $table, string $where, array $params = []): int {
+function delete(string $table, string $where, array $params = []): int
+{
     $pdo = getDBConnection();
     $sql = "DELETE FROM $table WHERE $where";
     $stmt = $pdo->prepare($sql);
@@ -154,30 +163,40 @@ define('APP_VERSION', '1.0.0');
 define('DATA_DIR', __DIR__ . '/assets/data');
 
 // Helper function for htmlspecialchars
-function h(mixed $s): string {
+function h(mixed $s): string
+{
     return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
 }
 
 // Kilogram formatter
-function kg(float $n): string {
+function kg(float $n): string
+{
     return number_format($n, 0, ',', '.') . ' Kg';
 }
 
 // Percentage formatter
-function pct(float $n): string {
+function pct(float $n): string
+{
     return number_format($n) . '%';
 }
 
 // Date formatter (YYYY-MM-DD to DD/MM/YYYY)
-function dmy(?string $date): string {
+function dmy(?string $date): string
+{
     if (!$date) return '-';
     $t = strtotime($date);
     return $t ? date('d/m/Y', $t) : $date;
 }
 
 // Date formatter (DD/MM/YYYY to YYYY-MM-DD)
-function ymd(?string $date): string {
+function ymd(?string $date): string
+{
     if (!$date) return '';
     $t = strtotime(str_replace('/', '-', $date));
     return $t ? date('Y-m-d', $t) : $date;
+}
+
+// Include progress calculation functions
+if (file_exists(__DIR__ . '/functions/progress_calculator.php')) {
+    require_once __DIR__ . '/functions/progress_calculator.php';
 }
