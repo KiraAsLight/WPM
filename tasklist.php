@@ -18,82 +18,59 @@ $nowEpoch = time();
 // Muat PON dari database
 $ponRecords = fetchAll('SELECT * FROM pon ORDER BY date_pon DESC');
 
-// Muat tasks dari database
-$tasks = fetchAll('SELECT * FROM tasks');
+// Muat semua tasks dari database
+$allTasks = fetchAll('SELECT * FROM tasks');
 
-// Helper ambil tasks untuk PON
-function tasks_for_pon(array $tasks, string $pon): array
-{
-  $out = [];
-  foreach ($tasks as $i => $t) {
-    if ((string) ($t['pon'] ?? '') === $pon) {
-      $t['_idx'] = $i;
-      $out[] = $t;
-    }
-  }
-  return $out;
-}
-// Helper ambil tasks untuk PON+Divisi
-function tasks_for_pon_div(array $tasks, string $pon, string $div): array
-{
-  $out = [];
-  foreach ($tasks as $i => $t) {
-    if ((string) ($t['pon'] ?? '') === $pon && (string) ($t['division'] ?? '') === $div) {
-      $t['_idx'] = $i;
-      $out[] = $t;
-    }
-  }
+// Hitung statistik task
+$totalTasks = count($allTasks);
+$completedTasks = count(array_filter($allTasks, fn($t) => strtolower($t['status'] ?? '') === 'done'));
+$avgProgress = $totalTasks > 0 ? (int)round(array_sum(array_map(fn($t) => (int)($t['progress'] ?? 0), $allTasks)) / $totalTasks) : 0;
 
-  return $out;
-}
-// Agregasi progres divisi untuk PON
-function div_progress(array $tasksForPon): array
-{
-  $divisions = ['Engineering', 'Logistik', 'Pabrikasi', 'Purchasing'];
-  $agg = [];
-  foreach ($divisions as $d) {
-    $rows = array_values(array_filter($tasksForPon, fn($t) => (string) ($t['division'] ?? '') === $d));
-    $avg = $rows ? (int) round(array_sum(array_map(fn($r) => (int) ($r['progress'] ?? 0), $rows)) / max(1, count($rows))) : 0;
-    $agg[$d] = $avg;
+// Hitung distribusi berdasarkan jenis jembatan
+$typeDistribution = [];
+foreach ($ponRecords as $pon) {
+  $type = strtolower(trim($pon['type'] ?? ''));
+  if (strpos($type, 'rangka') !== false) {
+    $typeDistribution['Rangka'] = ($typeDistribution['Rangka'] ?? 0) + 1;
+  } elseif (strpos($type, 'gantung') !== false) {
+    $typeDistribution['Gantung'] = ($typeDistribution['Gantung'] ?? 0) + 1;
+  } elseif (strpos($type, 'bailey') !== false || strpos($type, 'balley') !== false) {
+    $typeDistribution['Bailey'] = ($typeDistribution['Bailey'] ?? 0) + 1;
+  } elseif (strpos($type, 'girder') !== false) {
+    $typeDistribution['Girder'] = ($typeDistribution['Girder'] ?? 0) + 1;
+  } else {
+    $typeDistribution['Lainnya'] = ($typeDistribution['Lainnya'] ?? 0) + 1;
   }
-  return $agg;
 }
 
-// Stage params
+// Handle search/filter
+$searchQuery = isset($_GET['search']) ? trim($_GET['search']) : '';
+$filteredPonRecords = $ponRecords;
+
+if ($searchQuery) {
+  $filteredPonRecords = array_filter($ponRecords, function ($pon) use ($searchQuery) {
+    $searchLower = strtolower($searchQuery);
+    return strpos(strtolower($pon['pon'] ?? ''), $searchLower) !== false ||
+      strpos(strtolower($pon['client'] ?? ''), $searchLower) !== false ||
+      strpos(strtolower($pon['type'] ?? ''), $searchLower) !== false ||
+      strpos(strtolower($pon['status'] ?? ''), $searchLower) !== false;
+  });
+}
+
+// Redirect ke divisi jika ada PON yang dipilih
 $selPon = isset($_GET['pon']) ? (string) $_GET['pon'] : '';
 $selDiv = isset($_GET['div']) ? (string) $_GET['div'] : '';
 
-// Update task (progres/status) lalu redirect ke stage yang sama
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-  $idx = isset($_POST['idx']) ? (int) $_POST['idx'] : -1;
-  $progress = isset($_POST['progress']) ? (int) $_POST['progress'] : 0;
-  $status = trim($_POST['status'] ?? '');
-  $ponParam = trim($_POST['pon'] ?? '');
-  $divParam = trim($_POST['div'] ?? '');
-  $valid = ['ToDo', 'On Proses', 'Hold', 'Done'];
-  if ($idx >= 0 && $idx < count($tasks)) {
-    $progress = max(0, min(100, $progress));
-    if (!in_array($status, $valid, true))
-      $status = (string) ($tasks[$idx]['status'] ?? 'ToDo');
-    $taskId = $tasks[$idx]['id'] ?? null;
-    if ($taskId !== null) {
-      update('tasks', ['progress' => $progress, 'status' => $status, 'updated_at' => date('Y-m-d H:i')], 'id = :id', ['id' => $taskId]);
-
-      // Auto-update PON progress when task changes
-      if ($ponParam && function_exists('updatePonProgress')) {
-        updatePonProgress($ponParam);
-      }
-    }
+if ($selPon) {
+  // Jika sudah pilih PON tapi belum pilih divisi, redirect ke halaman divisi
+  if (!$selDiv) {
+    header('Location: task_divisions.php?pon=' . urlencode($selPon));
+    exit;
   }
-  $to = 'tasklist.php';
-  if ($ponParam && $divParam)
-    $to .= '?pon=' . urlencode($ponParam) . '&div=' . urlencode($divParam);
-  elseif ($ponParam)
-    $to .= '?pon=' . urlencode($ponParam);
-  header('Location: ' . $to);
+  // Jika sudah pilih PON dan divisi, redirect ke halaman task detail
+  header('Location: task_detail.php?pon=' . urlencode($selPon) . '&div=' . urlencode($selDiv));
   exit;
 }
-
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -109,139 +86,256 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     href="assets/css/sidebar.css?v=<?= file_exists('assets/css/sidebar.css') ? filemtime('assets/css/sidebar.css') : time() ?>">
   <link rel="stylesheet"
     href="assets/css/layout.css?v=<?= file_exists('assets/css/layout.css') ? filemtime('assets/css/layout.css') : time() ?>">
-  <link rel="stylesheet"
-    href="assets/css/charts.css?v=<?= file_exists('assets/css/charts.css') ? filemtime('assets/css/charts.css') : time() ?>">
   <style>
-    .filterbar {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      align-items: center;
-      margin-bottom: 12px
-    }
+    /* Task List New Layout Styles */
 
-    .input,
-    .select {
-      background: #0d142a;
-      border: 1px solid var(--border);
-      color: var(--text);
-      padding: 8px 10px;
-      border-radius: 8px
-    }
-
-    .crumb {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      margin-bottom: 10px;
-      color: var(--muted)
-    }
-
-    .crumb a {
-      color: #93c5fd;
-      text-decoration: none
-    }
-
-    .crumb .sep {
-      opacity: .5
-    }
-
-    .grid-4 {
+    /* Statistics Cards */
+    .stats-grid {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 16px
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 30px;
     }
 
-    @media (max-width:1100px) {
-      .grid-4 {
-        grid-template-columns: repeat(2, 1fr)
+    @media (max-width: 768px) {
+      .stats-grid {
+        grid-template-columns: 1fr;
       }
     }
 
-    .tile {
-      border: 1px dashed var(--border);
+    .stat-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
       border-radius: 12px;
-      padding: 16px;
-      background: rgba(255, 255, 255, .02);
-      cursor: pointer
-    }
-
-    .tile:hover {
-      background: rgba(255, 255, 255, .04)
-    }
-
-    .pon-table {
-      width: 100%;
-      border-collapse: collapse
-    }
-
-    .pon-table th,
-    .pon-table td {
-      padding: 12px;
-      border-bottom: 1px solid var(--border);
-      text-align: left
-    }
-
-    .btn {
-      display: inline-block;
-      background: #1d4ed8;
-      border: 1px solid #3b82f6;
-      color: #fff;
-      text-decoration: none;
-      padding: 6px 10px;
-      border-radius: 6px;
-      font-weight: 600;
-      font-size: 12px;
-      transition: background 0.2s
-    }
-
-    .btn:hover {
-      background: #1e40af
-    }
-
-    .btn-success {
-      background: #059669;
-      border-color: #10b981
-    }
-
-    .btn-success:hover {
-      background: #047857
-    }
-
-    .btn-danger {
-      background: #dc2626;
-      border-color: #ef4444
-    }
-
-    .btn-danger:hover {
-      background: #b91c1c
-    }
-
-    .btn.secondary {
-      background: transparent;
-      color: #cbd5e1
-    }
-
-    .inline-form {
+      padding: 20px;
       display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 32px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+
+    .stat-label {
+      font-size: 14px;
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    /* Pie Chart for Progress Distribution */
+    .progress-chart {
+      position: relative;
+      width: 120px;
+      height: 120px;
+      margin: 0 auto 15px;
+    }
+
+    .pie-chart {
+      width: 120px;
+      height: 120px;
+    }
+
+    .chart-legend {
+      display: flex;
+      flex-wrap: wrap;
       gap: 8px;
-      align-items: center
+      justify-content: center;
+      margin-top: 10px;
     }
 
-    .input.sm,
-    .select.sm {
-      padding: 6px 8px
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: var(--muted);
     }
 
-    .input-num {
-      width: 80px
+    .legend-color {
+      width: 12px;
+      height: 12px;
+      border-radius: 2px;
+    }
+
+    /* PON Table Section */
+    .pon-section {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      height: 500px;
+      display: flex;
+      flex-direction: column;
     }
 
     .section-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 16px;
+      margin-bottom: 20px;
+    }
+
+    .section-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .search-container {
+      position: relative;
+      width: 300px;
+    }
+
+    .search-input {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 15px 10px 40px;
+      color: var(--text);
+      font-size: 14px;
+    }
+
+    .search-input::placeholder {
+      color: var(--muted);
+    }
+
+    .search-icon {
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .pon-table-container {
+      flex: 1;
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+
+    .pon-table {
+      width: 100%;
+      min-width: 800px;
+      border-collapse: collapse;
+    }
+
+    .pon-table thead {
+      background: rgba(255, 255, 255, 0.05);
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    .pon-table th,
+    .pon-table td {
+      padding: 12px 15px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+
+    .pon-table th {
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .pon-table td {
+      color: var(--text);
+    }
+
+    .pon-table tbody tr {
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    .pon-table tbody tr:hover {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .status-badge {
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .status-progres {
+      background: rgba(59, 130, 246, 0.2);
+      color: #93c5fd;
+    }
+
+    .status-selesai {
+      background: rgba(34, 197, 94, 0.2);
+      color: #86efac;
+    }
+
+    .status-pending {
+      background: rgba(239, 68, 68, 0.2);
+      color: #fca5a5;
+    }
+
+    .status-delayed {
+      background: rgba(245, 101, 101, 0.2);
+      color: #f87171;
+    }
+
+    /* Custom Scrollbar */
+    .pon-table-container::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    .pon-table-container::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+    }
+
+    .pon-table-container::-webkit-scrollbar-thumb {
+      background: rgba(147, 197, 253, 0.5);
+      border-radius: 3px;
+    }
+
+    .pon-table-container::-webkit-scrollbar-thumb:hover {
+      background: rgba(147, 197, 253, 0.7);
+    }
+
+    /* Progress Bar in Table */
+    .progress-container {
+      width: 60px;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #3b82f6, #06b6d4);
+      border-radius: 3px;
+      transition: width 0.3s ease;
+    }
+
+    /* Empty State */
+    .empty-state {
+      text-align: center;
+      color: var(--muted);
+      padding: 40px 20px;
+      font-size: 14px;
     }
   </style>
 </head>
@@ -250,8 +344,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   <div class="layout">
     <aside class="sidebar">
       <div class="brand">
-        <div class="logo" aria-hidden="true">
-        </div>
+        <div class="logo" aria-hidden="true"></div>
       </div>
       <nav class="nav">
         <a class="<?= $activeMenu === 'Dashboard' ? 'active' : '' ?>" href="dashboard.php"><span class="icon bi-house"></span> Dashboard</a>
@@ -272,167 +365,136 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </header>
 
     <main class="content">
-      <?php if (!$selPon): ?>
-        <!-- Stage 1: Daftar PON -->
-        <section class="section">
-          <div class="hd">Pilih PON</div>
-          <div class="bd">
-            <div class="filterbar">
-              <input id="qPon" class="input" type="search" placeholder="Cari Number PON atau Type" oninput="filterPon()">
-              <a class="btn" href="pon_new.php">+ Tambah PON</a>
-            </div>
-            <div style="overflow:auto">
-              <table class="pon-table" id="ponTable">
-                <thead>
-                  <tr>
-                    <th style="width:220px">Number PON</th>
-                    <th>Type</th>
-                    <th>Type Pekerjaan</th>
-                    <th>Date PON</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <?php if (!$ponRecords): ?>
-                    <tr>
-                      <td colspan="4" class="muted">Belum ada PON.</td>
-                    </tr>
-                    <?php else:
-                    foreach ($ponRecords as $pr):
-                      $pon = (string) ($pr['pon'] ?? '-'); ?>
-                      <tr>
-                        <td><a href="tasklist.php?pon=<?= urlencode($pon) ?>" class="btn"
-                            style="padding:6px 10px"><?= strtoupper(h($pon)) ?></a></td>
-                        <td><?= h((string) ($pr['type'] ?? '-')) ?></td>
-                        <td><?= h((string) ($pr['job_type'] ?? '-')) ?></td>
-                        <td><?= h(dmy($pr['date_pon'] ?? null)) ?></td>
-                      </tr>
-                  <?php endforeach;
-                  endif; ?>
-                </tbody>
-              </table>
-            </div>
+      <!-- Statistics Cards -->
+      <div class="stats-grid">
+        <!-- Total Task -->
+        <div class="stat-card">
+          <div class="stat-value"><?= $totalTasks ?></div>
+          <div class="stat-label">Total Task</div>
+        </div>
+
+        <!-- Task Selesai -->
+        <div class="stat-card">
+          <div class="stat-value"><?= $completedTasks ?></div>
+          <div class="stat-label">Task Selesai</div>
+        </div>
+
+        <!-- Rata-rata Progress dengan Pie Chart -->
+        <div class="stat-card">
+          <div class="progress-chart">
+            <svg class="pie-chart" viewBox="0 0 42 42">
+              <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="rgba(255,255,255,0.1)" stroke-width="3"></circle>
+              <circle cx="21" cy="21" r="15.915" fill="transparent"
+                stroke="#3b82f6" stroke-width="3"
+                stroke-dasharray="<?= $avgProgress ?> 100"
+                stroke-dashoffset="25"
+                stroke-linecap="round"></circle>
+              <text x="21" y="25" text-anchor="middle" fill="var(--text)" font-size="8" font-weight="600">
+                <?= $avgProgress ?>%
+              </text>
+            </svg>
           </div>
-        </section>
-      <?php elseif ($selPon && !$selDiv): ?>
-        <!-- Stage 2: Pilih Divisi -->
-        <?php $tp = tasks_for_pon($tasks, $selPon);
-        $agg = div_progress($tp); ?>
-        <section class="section">
-          <div class="hd">Pilih Divisi</div>
-          <div class="bd">
-            <div class="crumb">
-              <a href="tasklist.php">PON</a><span class="sep">›</span><strong><?= strtoupper(h($selPon)) ?></strong>
-            </div>
-            <div class="grid-4" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; position: relative;">
-              <?php foreach ($agg as $div => $val): ?>
-                <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
-                  <a class="btn" href="tasklist.php?pon=<?= urlencode($selPon) ?>&div=<?= urlencode($div) ?>"
-                    title="Lihat task <?= h($div) ?>" style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 20px;width:140px;text-align:center;background:#1e293b;border-radius:12px;box-shadow:0 4px 8px rgba(0,0,0,0.2);transition:background 0.3s ease;justify-content:center;">
-                    <div class="ring" style="--val: <?= (int) $val ?>;width:72px;height:72px;box-shadow: 0 0 8px rgba(59, 130, 246, 0.7);"><span><?= (int) $val ?>%</span>
+          <div class="stat-label">Rata-rata Progress</div>
+
+          <!-- Legend for Bridge Types -->
+          <div class="chart-legend">
+            <?php
+            $colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+            $i = 0;
+            foreach ($typeDistribution as $type => $count):
+            ?>
+              <div class="legend-item">
+                <div class="legend-color" style="background: <?= $colors[$i % count($colors)] ?>"></div>
+                <span><?= h($type) ?></span>
+              </div>
+            <?php
+              $i++;
+            endforeach;
+            ?>
+          </div>
+        </div>
+      </div>
+
+      <!-- PON Table Section -->
+      <div class="pon-section">
+        <div class="section-header">
+          <div class="section-title">
+            <i class="bi bi-table"></i>
+            Daftar PON
+          </div>
+          <div class="search-container">
+            <form method="GET" action="">
+              <div style="position: relative;">
+                <i class="bi bi-search search-icon"></i>
+                <input type="text" name="search" class="search-input"
+                  placeholder="Cari PON/Type/Status..."
+                  value="<?= h($searchQuery) ?>">
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <div class="pon-table-container">
+          <table class="pon-table">
+            <thead>
+              <tr>
+                <th>PON</th>
+                <th>Client</th>
+                <th>Tipe Jembatan</th>
+                <th>Tipe Pekerjaan</th>
+                <th>Start</th>
+                <th>Finish</th>
+                <th>Progress</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php if (empty($filteredPonRecords)): ?>
+                <tr>
+                  <td colspan="8">
+                    <div class="empty-state">
+                      <?php if ($searchQuery): ?>
+                        Tidak ada PON yang cocok dengan pencarian "<?= h($searchQuery) ?>"
+                      <?php else: ?>
+                        Belum ada data PON
+                      <?php endif; ?>
                     </div>
-                    <div style="font-weight:700;letter-spacing:.3px;color:#93c5fd;font-size:16px;"><?= h($div) ?></div>
-                  </a>
-                  <a class="btn" href="tasklist.php?pon=<?= urlencode($selPon) ?>&div=<?= urlencode($div) ?>"
-                    style="padding: 8px 16px; font-size: 14px; font-weight: 600; border-radius: 8px; background-color: #2563eb; color: white; text-decoration: none; box-shadow: 0 2px 6px rgba(37, 99, 235, 0.5); transition: background-color 0.3s ease; width: 140px; text-align: center;"
-                    onmouseover="this.style.backgroundColor='#1e40af';"
-                    onmouseout="this.style.backgroundColor='#2563eb';">
-                    Masuk ke <?= h($div) ?>
-                  </a>
-                </div>
-              <?php endforeach; ?>
-            </div>
-          </div>
-        </section>
-      <?php else: ?>
-        <!-- Stage 3: Task untuk PON + Divisi -->
-        <?php $rows = tasks_for_pon_div($tasks, $selPon, $selDiv); ?>
-        <section class="section">
-          <div class="section-header">
-            <div class="hd">Task PON <?= strtoupper(h($selPon)) ?> • <?= h($selDiv) ?></div>
-            <a href="task_new.php?pon=<?= urlencode($selPon) ?>&div=<?= urlencode($selDiv) ?>" class="btn btn-success">
-              <i class="bi bi-plus"></i> Tambah Task
-            </a>
-          </div>
-          <div class="bd">
-            <div class="crumb">
-              <a href="tasklist.php">PON</a><span class="sep">›</span>
-              <a href="tasklist.php?pon=<?= urlencode($selPon) ?>"><?= strtoupper(h($selPon)) ?></a><span
-                class="sep">›</span>
-              <strong><?= h($selDiv) ?></strong>
-            </div>
-            <div style="overflow:auto">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Task</th>
-                    <th>PIC</th>
-                    <th>Progress</th>
-                    <th>Status</th>
-                    <th>Start</th>
-                    <th>Due</th>
-                    <?php if ($selDiv === 'Purchasing'): ?>
-                      <th>Vendor</th>
-                      <th>No. PO</th>
-                    <?php endif; ?>
-                    <th>Update</th>
-                    <th>Aksi</th>
+                  </td>
+                </tr>
+              <?php else: ?>
+                <?php foreach ($filteredPonRecords as $pon):
+                  $progress = (int)($pon['progress'] ?? 0);
+                  $status = strtolower($pon['status'] ?? 'progres');
+                  $statusClass = 'status-' . str_replace(' ', '-', $status);
+                ?>
+                  <tr onclick="window.location.href='task_divisions.php?pon=<?= urlencode($pon['pon']) ?>'">
+                    <td><strong><?= h($pon['pon']) ?></strong></td>
+                    <td><?= h($pon['client'] ?? '-') ?></td>
+                    <td><?= h($pon['type'] ?? '-') ?></td>
+                    <td><?= h($pon['job_type'] ?? '-') ?></td>
+                    <td><?= h(dmy($pon['date_pon'] ?? null)) ?></td>
+                    <td><?= h(dmy($pon['date_finish'] ?? null)) ?></td>
+                    <td>
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <div class="progress-container">
+                          <div class="progress-bar" style="width: <?= $progress ?>%"></div>
+                        </div>
+                        <span style="font-size: 12px; color: var(--muted);"><?= $progress ?>%</span>
+                      </div>
+                    </td>
+                    <td>
+                      <span class="status-badge <?= $statusClass ?>"><?= h(ucfirst($status)) ?></span>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  <?php if (!$rows): ?>
-                    <tr>
-                      <td colspan="<?= $selDiv === 'Purchasing' ? '10' : '8' ?>" class="muted">Belum ada task untuk divisi ini.</td>
-                    </tr>
-                    <?php else:
-                    foreach ($rows as $r):
-                      $idx = (int) $r['_idx']; ?>
-                      <tr>
-                        <td><?= h((string) ($r['title'] ?? '')) ?></td>
-                        <td><?= h((string) ($r['pic'] ?? '-')) ?></td>
-                        <td><?= (int) ($r['progress'] ?? 0) ?>%</td>
-                        <td><?= h((string) ($r['status'] ?? '')) ?></td>
-                        <td><?= h(dmy($r['start_date'] ?? null)) ?></td>
-                        <td><?= h(dmy($r['due_date'] ?? null)) ?></td>
-                        <?php if ($selDiv === 'Purchasing'): ?>
-                          <td><?= h((string) ($r['vendor'] ?? '-')) ?></td>
-                          <td><?= h((string) ($r['no_po'] ?? '-')) ?></td>
-                        <?php endif; ?>
-                        <td>
-                          <form method="post" class="inline-form"
-                            action="tasklist.php?pon=<?= urlencode($selPon) ?>&div=<?= urlencode($selDiv) ?>">
-                            <input type="hidden" name="idx" value="<?= $idx ?>">
-                            <input type="hidden" name="pon" value="<?= h($selPon) ?>">
-                            <input type="hidden" name="div" value="<?= h($selDiv) ?>">
-                            <input class="input input-num sm" name="progress" type="number" min="0" max="100"
-                              value="<?= (int) ($r['progress'] ?? 0) ?>">
-                            <select class="select sm" name="status">
-                              <?php foreach (['ToDo', 'On Proses', 'Hold', 'Done'] as $st): ?>
-                                <option value="<?= h($st) ?>" <?= ((string) ($r['status'] ?? '')) === $st ? 'selected' : '' ?>>
-                                  <?= h($st) ?>
-                                </option>
-                              <?php endforeach; ?>
-                            </select>
-                            <button class="btn" type="submit">Simpan</button>
-                          </form>
-                        </td>
-                        <td>
-                          <a href="task_edit.php?id=<?= $r['id'] ?? 0 ?>&pon=<?= urlencode($selPon) ?>&div=<?= urlencode($selDiv) ?>"
-                            class="btn" title="Edit Task">
-                            <i class="bi bi-pencil"></i>
-                          </a>
-                        </td>
-                      </tr>
-                  <?php endforeach;
-                  endif; ?>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-      <?php endif; ?>
+                <?php endforeach; ?>
+              <?php endif; ?>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </main>
 
-    <footer class="footer">© <?= date('Y') ?> <?= h($appName) ?> • Task List</footer>
+    <footer class="footer">© <?= date('Y') ?> <?= h($appName) ?> • Dibangun cepat dengan PHP</footer>
   </div>
 
   <script>
@@ -453,13 +515,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       setInterval(tick, 1000);
     })();
 
-    function filterPon() {
-      const q = (document.getElementById('qPon').value || '').toLowerCase();
-      const rows = document.querySelectorAll('#ponTable tbody tr');
-      rows.forEach(r => {
-        const text = r.innerText.toLowerCase();
-        r.style.display = (!q || text.includes(q)) ? '' : 'none';
+    // Auto-submit search on typing (with debounce)
+    let searchTimeout;
+    const searchInput = document.querySelector('.search-input');
+    if (searchInput) {
+      searchInput.addEventListener('input', function() {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+          this.form.submit();
+        }, 500);
       });
+    }
+
+    // Clear search when clicking clear button
+    function clearSearch() {
+      window.location.href = 'tasklist.php';
     }
   </script>
 </body>
