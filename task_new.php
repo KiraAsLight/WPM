@@ -37,9 +37,12 @@ if (!in_array($division, $validDivisions)) {
     exit;
 }
 
+// Get existing PICs from database for dropdown
+$existingPics = fetchAll('SELECT DISTINCT pic FROM tasks WHERE pic != "" ORDER BY pic');
+$picOptions = array_column($existingPics, 'pic');
+
 $errors = [];
 $old = [
-    'title' => '',
     'pic' => '',
     'start_date' => '',
     'due_date' => '',
@@ -52,7 +55,6 @@ $old = [
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $old['title'] = trim($_POST['title'] ?? '');
     $old['pic'] = trim($_POST['pic'] ?? '');
     $old['start_date'] = trim($_POST['start_date'] ?? '');
     $old['due_date'] = trim($_POST['due_date'] ?? '');
@@ -63,9 +65,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $old['no_po'] = trim($_POST['no_po'] ?? '');
 
     // Validation
-    if ($old['title'] === '') {
-        $errors['title'] = 'Task wajib diisi';
-    }
     if ($old['pic'] === '') {
         $errors['pic'] = 'PIC wajib diisi';
     }
@@ -76,7 +75,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors['due_date'] = 'Tanggal selesai wajib diisi';
     }
 
-    $validStatuses = ['ToDo', 'On Proses', 'Hold', 'Done'];
+    $validStatuses = ['ToDo', 'On Proses', 'Hold', 'Done', 'Waiting Approve'];
     if (!in_array($old['status'], $validStatuses)) {
         $errors['status'] = 'Status tidak valid';
     }
@@ -109,14 +108,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    // Generate task title based on division and category
+    $taskCategories = [
+        'Engineering' => ['List Material', 'Shop Drawing', 'Erection', 'Manual Book', 'QC Dossier'],
+        'Logistik' => ['Pengiriman Material', 'Koordinasi Transportasi', 'Dokumen Pengiriman', 'Tracking', 'Delivery'],
+        'Pabrikasi' => ['Cutting', 'Welding', 'Assembly', 'Painting', 'QC Check'],
+        'Purchasing' => ['RFQ', 'PO Processing', 'Vendor Management', 'Material Receipt', 'Invoice']
+    ];
+
+    $defaultTitle = $taskCategories[$division][0] ?? 'Task Default';
+
     // Save to database if no errors
     if (empty($errors)) {
         try {
             $taskData = [
                 'pon' => $ponCode,
                 'division' => $division,
-                'title' => $old['title'],
-                'assignee' => '', // Keep empty for now
+                'title' => $defaultTitle, // Use default title
+                'assignee' => '',
                 'priority' => 'Medium',
                 'progress' => 0,
                 'status' => $old['status'],
@@ -138,7 +147,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 updatePonProgress($ponCode);
             }
 
-            header('Location: tasklist.php?pon=' . urlencode($ponCode) . '&div=' . urlencode($division) . '&added=1');
+            header('Location: task_detail.php?pon=' . urlencode($ponCode) . '&div=' . urlencode($division) . '&added=1');
             exit;
         } catch (Exception $e) {
             $errors['general'] = 'Gagal menyimpan task: ' . $e->getMessage();
@@ -175,10 +184,10 @@ function handleFileUpload($file, $type = 'files')
 function getDivisionFields($division)
 {
     $fields = [
-        'Engineering' => ['task', 'start', 'finish', 'progress', 'status', 'pic', 'files', 'keterangan'],
-        'Logistik' => ['task', 'start', 'finish', 'progress', 'status', 'pic', 'files', 'keterangan'],
-        'Pabrikasi' => ['task', 'start', 'finish', 'progress', 'status', 'pic', 'foto', 'keterangan'],
-        'Purchasing' => ['task', 'satuan', 'vendor', 'no_po', 'start', 'finish', 'status', 'files', 'keterangan']
+        'Engineering' => ['pic', 'start', 'finish', 'status', 'files', 'keterangan'],
+        'Logistik' => ['pic', 'start', 'finish', 'status', 'files', 'keterangan'],
+        'Pabrikasi' => ['pic', 'start', 'finish', 'status', 'foto', 'keterangan'],
+        'Purchasing' => ['satuan', 'vendor', 'no_po', 'start', 'finish', 'status', 'files', 'keterangan']
     ];
 
     return $fields[$division] ?? [];
@@ -329,6 +338,15 @@ $divisionFields = getDivisionFields($division);
         .crumb .sep {
             opacity: 0.5;
         }
+
+        .custom-pic-input {
+            margin-top: 8px;
+            display: none;
+        }
+
+        .custom-pic-input.show {
+            display: block;
+        }
     </style>
 </head>
 
@@ -365,8 +383,8 @@ $divisionFields = getDivisionFields($division);
                 <div class="bd">
                     <div class="crumb">
                         <a href="tasklist.php">PON</a><span class="sep">›</span>
-                        <a href="tasklist.php?pon=<?= urlencode($ponCode) ?>"><?= strtoupper(h($ponCode)) ?></a><span class="sep">›</span>
-                        <a href="tasklist.php?pon=<?= urlencode($ponCode) ?>&div=<?= urlencode($division) ?>"><?= h($division) ?></a><span class="sep">›</span>
+                        <a href="task_divisions.php?pon=<?= urlencode($ponCode) ?>"><?= strtoupper(h($ponCode)) ?></a><span class="sep">›</span>
+                        <a href="task_detail_new.php?pon=<?= urlencode($ponCode) ?>&div=<?= urlencode($division) ?>"><?= h($division) ?></a><span class="sep">›</span>
                         <strong>Tambah Task</strong>
                     </div>
 
@@ -380,21 +398,19 @@ $divisionFields = getDivisionFields($division);
                     <?php endif; ?>
 
                     <form method="post" class="form" enctype="multipart/form-data">
-                        <!-- Task Title (All Divisions) -->
-                        <div class="field">
-                            <label class="label required" for="title">Task</label>
-                            <input class="input" id="title" name="title" value="<?= h($old['title']) ?>" required
-                                placeholder="Nama task/tugas">
-                            <?php if (isset($errors['title'])): ?>
-                                <div class="error"><?= h($errors['title']) ?></div>
-                            <?php endif; ?>
-                        </div>
-
-                        <!-- PIC (All Divisions) -->
+                        <!-- PIC Dropdown (All Divisions) -->
                         <div class="field">
                             <label class="label required" for="pic">PIC</label>
-                            <input class="input" id="pic" name="pic" value="<?= h($old['pic']) ?>" required
-                                placeholder="Person In Charge">
+                            <select class="select" id="pic" name="pic" required onchange="toggleCustomPic(this)">
+                                <option value="">Pilih PIC</option>
+                                <?php foreach ($picOptions as $pic): ?>
+                                    <option value="<?= h($pic) ?>" <?= $old['pic'] === $pic ? 'selected' : '' ?>>
+                                        <?= h($pic) ?>
+                                    </option>
+                                <?php endforeach; ?>
+                                <option value="custom">+ Tambah PIC Baru</option>
+                            </select>
+                            <input type="text" class="input custom-pic-input" id="custom-pic" placeholder="Masukkan nama PIC baru">
                             <?php if (isset($errors['pic'])): ?>
                                 <div class="error"><?= h($errors['pic']) ?></div>
                             <?php endif; ?>
@@ -428,6 +444,9 @@ $divisionFields = getDivisionFields($division);
                                     <div class="error"><?= h($errors['no_po']) ?></div>
                                 <?php endif; ?>
                             </div>
+                        <?php else: ?>
+                            <!-- Empty field for other divisions -->
+                            <div class="field"></div>
                         <?php endif; ?>
 
                         <!-- Start Date -->
@@ -452,7 +471,7 @@ $divisionFields = getDivisionFields($division);
                         <div class="field">
                             <label class="label" for="status">Status</label>
                             <select class="select" id="status" name="status">
-                                <?php foreach (['ToDo', 'On Proses', 'Hold', 'Done'] as $st): ?>
+                                <?php foreach (['ToDo', 'On Proses', 'Hold', 'Done', 'Waiting Approve'] as $st): ?>
                                     <option value="<?= h($st) ?>" <?= $old['status'] === $st ? 'selected' : '' ?>>
                                         <?= h($st) ?>
                                     </option>
@@ -505,7 +524,7 @@ $divisionFields = getDivisionFields($division);
                                 <button type="submit" class="btn">
                                     <i class="bi bi-check-lg"></i> Simpan Task
                                 </button>
-                                <a class="btn secondary" href="tasklist.php?pon=<?= urlencode($ponCode) ?>&div=<?= urlencode($division) ?>">
+                                <a class="btn secondary" href="task_detail.php?pon=<?= urlencode($ponCode) ?>&div=<?= urlencode($division) ?>">
                                     <i class="bi bi-x-lg"></i> Batal
                                 </a>
                             </div>
@@ -544,6 +563,38 @@ $divisionFields = getDivisionFields($division);
                 startDateInput.value = today;
             }
         });
+
+        // Toggle custom PIC input
+        function toggleCustomPic(select) {
+            const customInput = document.getElementById('custom-pic');
+            const picNameInput = document.querySelector('input[name="pic"]');
+
+            if (select.value === 'custom') {
+                customInput.classList.add('show');
+                customInput.required = true;
+                customInput.focus();
+
+                // Create hidden input for custom PIC value
+                if (!picNameInput) {
+                    const hiddenInput = document.createElement('input');
+                    hiddenInput.type = 'hidden';
+                    hiddenInput.name = 'pic';
+                    select.parentNode.appendChild(hiddenInput);
+                }
+
+                customInput.addEventListener('input', function() {
+                    document.querySelector('input[name="pic"]').value = this.value;
+                });
+            } else {
+                customInput.classList.remove('show');
+                customInput.required = false;
+
+                // Remove hidden input
+                if (picNameInput) {
+                    picNameInput.remove();
+                }
+            }
+        }
     </script>
 </body>
 
