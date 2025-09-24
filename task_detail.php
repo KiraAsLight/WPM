@@ -131,6 +131,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><?= h($division) ?> - Detail Task - <?= h($appName) ?></title>
     <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <link rel="stylesheet"
+        href="assets/css/app.css?v=<?= file_exists('assets/css/app.css') ? filemtime('assets/css/app.css') : time() ?>">
+    <link rel="stylesheet"
+        href="assets/css/sidebar.css?v=<?= file_exists('assets/css/sidebar.css') ? filemtime('assets/css/sidebar.css') : time() ?>">
+    <link rel="stylesheet"
         href="assets/css/layout.css?v=<?= file_exists('assets/css/layout.css') ? filemtime('assets/css/layout.css') : time() ?>">
     <style>
         /* Task Detail Page Styles */
@@ -349,6 +355,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             width: 60px;
         }
 
+        .back-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--border);
+            color: var(--text);
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+
+        .back-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
         .btn-sm {
             background: #3b82f6;
             border: 1px solid #3b82f6;
@@ -472,10 +496,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         <div class="task-title"><?= h($division) ?> > <?= h($activeTab ?: 'Pilih Kategori') ?></div>
                     </div>
                     <?php if ($activeTab): ?>
-                        <a href="task_new.php?pon=<?= urlencode($ponCode) ?>&div=<?= urlencode($division) ?>" class="add-task-btn">
-                            <i class="bi bi-plus"></i>
-                            Tambah Task
-                        </a>
+                        <div style="display: flex; gap: 8px;">
+                            <a href="task_divisions.php?pon=<?= urlencode($ponCode) ?>" class="back-btn">
+                                <i class="bi bi-arrow-left"></i>
+                                Kembali
+                            </a>
+                            <a href="task_new.php?pon=<?= urlencode($ponCode) ?>&div=<?= urlencode($division) ?>" class="add-task-btn">
+                                <i class="bi bi-plus"></i>
+                                Tambah Task
+                            </a>
+                        </div>
                     <?php endif; ?>
                 </div>
 
@@ -631,9 +661,4 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     </script>
 </body>
 
-</html> href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
-<link rel="stylesheet"
-    href="assets/css/app.css?v=<?= file_exists('assets/css/app.css') ? filemtime('assets/css/app.css') : time() ?>">
-<link rel="stylesheet"
-    href="assets/css/sidebar.css?v=<?= file_exists('assets/css/sidebar.css') ? filemtime('assets/css/sidebar.css') : time() ?>">
-<link rel="stylesheet"
+</html>
