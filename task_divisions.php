@@ -967,11 +967,11 @@ $divisionStatusStats['Integrated'] = [
                             </div>
                             <?php if ($div['name'] === 'Pabrikasi'): ?>
                                 <a href="fabrikasi_list.php?pon=<?= urlencode($ponCode) ?>" class="view-task-btn">
-                                    Lihat Data
+                                    Lihat Task
                                 </a>
                             <?php elseif ($div['name'] === 'Logistik'): ?>
                                 <a href="logistik_menu.php?pon=<?= urlencode($ponCode) ?>" class="view-task-btn">
-                                    Lihat Data Logistik
+                                    Lihat Task
                                 </a>
                             <?php else: ?>
                                 <a href="task_detail.php?pon=<?= urlencode($ponCode) ?>&div=<?= urlencode($div['name']) ?>" class="view-task-btn">

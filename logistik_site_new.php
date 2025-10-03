@@ -91,8 +91,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($old['nama_parts'] === '') {
         $errors['nama_parts'] = 'Nama Parts wajib diisi';
     }
-    if ($old['sent_to_site'] < 0) {
-        $errors['sent_to_site'] = 'Sent to Site tidak boleh negatif';
+    if ($old['sent_to_site_qty'] < 0) {
+        $errors['sent_to_site_qty'] = 'Sent to Site tidak boleh negatif';
     }
 
     // Check if no already exists
@@ -232,10 +232,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             display: flex;
             align-items: center;
             gap: 12px;
-        }
-
-        .progress-input {
-            flex: 1;
         }
 
         .progress-bar-preview {
@@ -392,8 +388,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <div class="field">
                             <label class="label" for="sent_to_site_qty">Sent to Site</label>
                             <div style="display: flex; gap: 20px;">
-                                <input class="input" type="number" id="sent_to_site_qty" name="sent_to_site_qty" placeholder="pcs" style="width: 50%;" value="<?= h($old['sent_to_site_qty']) ?>" min="0" step="1">
-                                <input class="input" type="number" id="sent_to_site_qty" name="sent_to_site_qty" placeholder="kg" style="width: 50%;" value=" <?= h($old['sent_to_site_qty']) ?>" min="0" step="0.01">
+                                <input class="input" type="number" id="sent_to_site_qty" name="sent_to_site_qty"
+                                    placeholder="pcs" style="width: 50%;"
+                                    value="<?= h($old['sent_to_site_qty']) ?>" min="0" step="1">
+                                <input class="input" type="number" id="sent_to_site_weight" name="sent_to_site_weight"
+                                    placeholder="kg" style="width: 50%;"
+                                    value="<?= h($old['sent_to_site_weight']) ?>" min="0" step="0.01">
                             </div>
                             <?php if (isset($errors['sent_to_site_qty'])): ?>
                                 <div class="error"><?= h($errors['sent_to_site_qty']) ?></div>
@@ -428,23 +428,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     <div class="form-row">
                         <div class="field">
-                            <label class="label" for="progress">Progress (%)</label>
+                            <label class="label">Progress (%)</label>
                             <div class="progress-container">
-                                <input class="input progress-input" type="range" id="progress" name="progress"
-                                    min="0" max="100" value="<?= h($old['progress']) ?>"
-                                    oninput="updateProgressPreview(this.value)">
                                 <div class="progress-bar-preview">
                                     <div class="progress-fill" id="progress-preview" style="width: <?= h($old['progress']) ?>%"></div>
                                 </div>
-                                <span id="progress-value" style="font-size: 12px; color: var(--muted); min-width: 30px;"><?= h($old['progress']) ?>%</span>
+                                <span id="progress-value" style="font-size: 12px; color: var(--muted); min-width: 30px;">
+                                    <?= h($old['progress']) ?>%
+                                </span>
                             </div>
+                            <!-- Hidden field untuk simpan progress (otomatis) -->
+                            <input type="hidden" id="progress" name="progress" value="<?= h($old['progress']) ?>">
+                            <div class="help-text">Progress dihitung otomatis: (Sent to Site / QTY) × 100%</div>
+                            <div class="help-text">Status "Diterima" + Sent to Site = QTY → Progress 100%</div>
                         </div>
 
                         <div class="field">
                             <label class="label" for="status">Status</label>
-                            <select class="select" id="status" id="status" name="status">
+                            <select class="select" id="status" name="status">
                                 <option value="Menunggu" <?= $old['status'] === 'Menunggu' ? 'selected' : '' ?>>Menunggu</option>
-                                <option value="Diterima" <?= $old['status'] === 'Diterima' ? 'selected' : '' ?>>Diterima"></option>
+                                <option value="Diterima" <?= $old['status'] === 'Diterima' ? 'selected' : '' ?>>Diterima</option>
                             </select>
                         </div>
                     </div>
@@ -484,9 +487,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             setInterval(tick, 1000);
         })();
 
-        function updateProgressPreview(value) {
-            document.getElementById('progress-preview').style.width = value + '%';
-            document.getElementById('progress-value').textContent = value + '%';
+        // ✅ FUNGSI BARU: Hitung progress otomatis berdasarkan input
+        function calculateAutoProgress() {
+            const sentQty = parseInt(document.getElementById('sent_to_site_qty').value) || 0;
+            const qty = parseInt(document.getElementById('qty').value) || 0;
+            const status = document.getElementById('status').value;
+
+            let progress = 0;
+
+            // ✅ SAMA PERSIS dengan logic di logistik_site.php
+            if (status === 'Diterima' && sentQty == qty) {
+                progress = 100;
+            } else {
+                progress = qty > 0 ? Math.round((sentQty / qty) * 100) : 0;
+            }
+
+            // Update hidden field dan display
+            document.getElementById('progress').value = progress;
+            document.getElementById('progress-preview').style.width = progress + '%';
+            document.getElementById('progress-value').textContent = progress + '%';
         }
 
         function previewImage(input) {
@@ -505,6 +524,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 reader.readAsDataURL(input.files[0]);
             }
         }
+
+        // ✅ Event listeners untuk field yang mempengaruhi progress
+        document.addEventListener('DOMContentLoaded', function() {
+            // Tambahkan event listeners
+            document.getElementById('sent_to_site_qty').addEventListener('input', calculateAutoProgress);
+            document.getElementById('qty').addEventListener('input', calculateAutoProgress);
+            document.getElementById('status').addEventListener('change', calculateAutoProgress);
+
+            // Hitung progress awal
+            calculateAutoProgress();
+        });
     </script>
 </body>
 

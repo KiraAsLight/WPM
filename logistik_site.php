@@ -301,7 +301,7 @@ if (!empty($items)) {
 
         .data-table th {
             padding: 10px 12px;
-            text-align: left;
+            text-align: center;
             color: var(--muted);
             font-weight: 600;
             font-size: 10px;
@@ -438,24 +438,6 @@ if (!empty($items)) {
             font-weight: 600;
             text-transform: uppercase;
             white-space: nowrap;
-        }
-
-        .remarks-badge {
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 10px;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-
-        .remarks-diterima {
-            background: rgba(34, 197, 94, 0.2);
-            color: #86efac;
-        }
-
-        .remarks-menunggu {
-            background: rgba(245, 158, 11, 0.2);
-            color: #fcd34d;
         }
 
         .foto-thumb {
@@ -687,10 +669,8 @@ if (!empty($items)) {
                                         <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">
                                             <?= h($item['keterangan']) ?>
                                         </td>
-                                        <td>
-                                            <span class="remarks-badge remarks-<?= strtolower($item['remarks']) ?>">
-                                                <?= h($item['remarks']) ?>
-                                            </span>
+                                        <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">
+                                            <?= h($item['remarks']) ?>
                                         </td>
                                         <td class="text-center">
                                             <div style="display: flex; align-items: center; gap: 8px; justify-content: center;">

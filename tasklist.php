@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 session_start();
 if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
-  header('Location: index.php');
-  exit;
+    header('Location: index.php');
+    exit;
 }
 
 require_once 'config.php';
@@ -18,43 +18,167 @@ $nowEpoch = time();
 // Muat PON dari database
 $ponRecords = fetchAll('SELECT * FROM pon ORDER BY date_pon DESC');
 
-// Muat semua tasks dari database
-$allTasks = fetchAll('SELECT * FROM tasks');
+// Handle search/filter
+$searchQuery = isset($_GET['search']) ? trim($_GET['search']) : '';
+$statusFilter = isset($_GET['status']) ? trim($_GET['status']) : '';
+$typeFilter = isset($_GET['type']) ? trim($_GET['type']) : '';
 
-// Hitung statistik task
-$totalTasks = count($allTasks);
-$completedTasks = count(array_filter($allTasks, fn($t) => strtolower($t['status'] ?? '') === 'done'));
-$avgProgress = $totalTasks > 0 ? (int)round(array_sum(array_map(fn($t) => (int)($t['progress'] ?? 0), $allTasks)) / $totalTasks) : 0;
+$filteredPonRecords = $ponRecords;
+
+if ($searchQuery) {
+    $filteredPonRecords = array_filter($ponRecords, function ($pon) use ($searchQuery) {
+        $searchLower = strtolower($searchQuery);
+        return strpos(strtolower($pon['pon'] ?? ''), $searchLower) !== false ||
+            strpos(strtolower($pon['client'] ?? ''), $searchLower) !== false ||
+            strpos(strtolower($pon['type'] ?? ''), $searchLower) !== false ||
+            strpos(strtolower($pon['status'] ?? ''), $searchLower) !== false;
+    });
+}
+
+if ($statusFilter) {
+    $filteredPonRecords = array_filter($filteredPonRecords, function ($pon) use ($statusFilter) {
+        return strtolower($pon['status'] ?? '') === strtolower($statusFilter);
+    });
+}
+
+if ($typeFilter) {
+    $filteredPonRecords = array_filter($filteredPonRecords, function ($pon) use ($typeFilter) {
+        return strpos(strtolower($pon['type'] ?? ''), strtolower($typeFilter)) !== false;
+    });
+}
+
+// ✅ OPTIMASI: Cache function untuk integrated progress
+function getIntegratedProgress($ponCode) {
+    static $cache = [];
+    
+    if (isset($cache[$ponCode])) {
+        return $cache[$ponCode];
+    }
+    
+    $tasks = fetchAll('SELECT * FROM tasks WHERE pon = ?', [$ponCode]);
+    $fabrikasiItems = fetchAll('SELECT * FROM fabrikasi_items WHERE pon = ?', [$ponCode]);
+    $logistikWorkshopItems = fetchAll('SELECT * FROM logistik_workshop WHERE pon = ?', [$ponCode]);
+    $logistikSiteItems = fetchAll('SELECT * FROM logistik_site WHERE pon = ?', [$ponCode]);
+    
+    $progressValue = 0;
+    $maxProgressValue = 0;
+    
+    foreach ($tasks as $task) {
+        $maxProgressValue += 100;
+        $progressValue += (int)($task['progress'] ?? 0);
+    }
+    
+    foreach ($fabrikasiItems as $item) {
+        $maxProgressValue += 100;
+        $progressValue += ($item['progress_calculated'] ?? 0);
+    }
+    
+    foreach ($logistikWorkshopItems as $item) {
+        $maxProgressValue += 100;
+        $progressValue += ($item['progress'] ?? 0);
+    }
+    
+    foreach ($logistikSiteItems as $item) {
+        $maxProgressValue += 100;
+        $progressValue += ($item['progress'] ?? 0);
+    }
+    
+    $progress = $maxProgressValue > 0 ? (int)round(($progressValue / $maxProgressValue) * 100) : 0;
+    
+    $cache[$ponCode] = $progress;
+    return $progress;
+}
+
+// ✅ HITUNG INTEGRATED STATISTICS (sama seperti task_divisions.php)
+$integratedTotal = 0;
+$integratedDone = 0;
+$totalProgressValue = 0;
+$maxProgressValue = 0;
+
+foreach ($ponRecords as $pon) {
+    $ponCode = $pon['pon'];
+    
+    // === DATA TASKS ===
+    $tasks = fetchAll('SELECT * FROM tasks WHERE pon = ?', [$ponCode]);
+    $totalTasks = count($tasks);
+    
+    // === DATA FABRIKASI ===
+    $fabrikasiItems = fetchAll('SELECT * FROM fabrikasi_items WHERE pon = ?', [$ponCode]);
+    $totalFabrikasiItems = count($fabrikasiItems);
+    
+    // === DATA LOGISTIK ===
+    $logistikWorkshopItems = fetchAll('SELECT * FROM logistik_workshop WHERE pon = ?', [$ponCode]);
+    $logistikSiteItems = fetchAll('SELECT * FROM logistik_site WHERE pon = ?', [$ponCode]);
+    $logistikTotalItems = count($logistikWorkshopItems) + count($logistikSiteItems);
+    
+    // INTEGRATE: Total Items/Tasks = Tasks + Fabrikasi + Logistik
+    $ponIntegratedTotal = $totalTasks + $totalFabrikasiItems + $logistikTotalItems;
+    $integratedTotal += $ponIntegratedTotal;
+    
+    // Hitung progress untuk PON ini
+    $ponProgressValue = 0;
+    $ponMaxProgressValue = 0;
+    
+    // Progress dari tasks
+    foreach ($tasks as $task) {
+        $ponMaxProgressValue += 100;
+        $ponProgressValue += (int)($task['progress'] ?? 0);
+        if (strtolower($task['status'] ?? '') === 'done') {
+            $integratedDone++;
+        }
+    }
+    
+    // Progress dari fabrikasi items
+    foreach ($fabrikasiItems as $item) {
+        $ponMaxProgressValue += 100;
+        $progress = $item['progress_calculated'] ?? 0;
+        $ponProgressValue += $progress;
+        if ($progress == 100) {
+            $integratedDone++;
+        }
+    }
+    
+    // Progress dari logistik items
+    foreach ($logistikWorkshopItems as $item) {
+        $ponMaxProgressValue += 100;
+        $progress = $item['progress'] ?? 0;
+        $ponProgressValue += $progress;
+        if ($item['status'] === 'Terkirim') {
+            $integratedDone++;
+        }
+    }
+    
+    foreach ($logistikSiteItems as $item) {
+        $ponMaxProgressValue += 100;
+        $progress = $item['progress'] ?? 0;
+        $ponProgressValue += $progress;
+        if ($item['status'] === 'Diterima') {
+            $integratedDone++;
+        }
+    }
+    
+    $totalProgressValue += $ponProgressValue;
+    $maxProgressValue += $ponMaxProgressValue;
+}
+
+// Hitung rata-rata progress integrated
+$avgProgress = $maxProgressValue > 0 ? (int)round(($totalProgressValue / $maxProgressValue) * 100) : 0;
 
 // Hitung distribusi berdasarkan jenis jembatan
 $typeDistribution = [];
 foreach ($ponRecords as $pon) {
-  $type = strtolower(trim($pon['type'] ?? ''));
-  if (strpos($type, 'rangka') !== false) {
-    $typeDistribution['Rangka'] = ($typeDistribution['Rangka'] ?? 0) + 1;
-  } elseif (strpos($type, 'gantung') !== false) {
-    $typeDistribution['Gantung'] = ($typeDistribution['Gantung'] ?? 0) + 1;
-  } elseif (strpos($type, 'bailey') !== false || strpos($type, 'balley') !== false) {
-    $typeDistribution['Bailey'] = ($typeDistribution['Bailey'] ?? 0) + 1;
-  } elseif (strpos($type, 'girder') !== false) {
-    $typeDistribution['Girder'] = ($typeDistribution['Girder'] ?? 0) + 1;
-  } else {
-    $typeDistribution['Lainnya'] = ($typeDistribution['Lainnya'] ?? 0) + 1;
-  }
-}
-
-// Handle search/filter
-$searchQuery = isset($_GET['search']) ? trim($_GET['search']) : '';
-$filteredPonRecords = $ponRecords;
-
-if ($searchQuery) {
-  $filteredPonRecords = array_filter($ponRecords, function ($pon) use ($searchQuery) {
-    $searchLower = strtolower($searchQuery);
-    return strpos(strtolower($pon['pon'] ?? ''), $searchLower) !== false ||
-      strpos(strtolower($pon['client'] ?? ''), $searchLower) !== false ||
-      strpos(strtolower($pon['type'] ?? ''), $searchLower) !== false ||
-      strpos(strtolower($pon['status'] ?? ''), $searchLower) !== false;
-  });
+    $type = strtolower(trim($pon['type'] ?? ''));
+    if (strpos($type, 'rangka') !== false) {
+        $typeDistribution['Rangka'] = ($typeDistribution['Rangka'] ?? 0) + 1;
+    } elseif (strpos($type, 'gantung') !== false) {
+        $typeDistribution['Gantung'] = ($typeDistribution['Gantung'] ?? 0) + 1;
+    } elseif (strpos($type, 'bailey') !== false || strpos($type, 'balley') !== false) {
+        $typeDistribution['Bailey'] = ($typeDistribution['Bailey'] ?? 0) + 1;
+    } elseif (strpos($type, 'girder') !== false) {
+        $typeDistribution['Girder'] = ($typeDistribution['Girder'] ?? 0) + 1;
+    } else {
+        $typeDistribution['Lainnya'] = ($typeDistribution['Lainnya'] ?? 0) + 1;
+    }
 }
 
 // Redirect ke divisi jika ada PON yang dipilih
@@ -62,476 +186,744 @@ $selPon = isset($_GET['pon']) ? (string) $_GET['pon'] : '';
 $selDiv = isset($_GET['div']) ? (string) $_GET['div'] : '';
 
 if ($selPon) {
-  // Jika sudah pilih PON tapi belum pilih divisi, redirect ke halaman divisi
-  if (!$selDiv) {
-    header('Location: task_divisions.php?pon=' . urlencode($selPon));
+    if (!$selDiv) {
+        header('Location: task_divisions.php?pon=' . urlencode($selPon));
+        exit;
+    }
+    header('Location: task_detail.php?pon=' . urlencode($selPon) . '&div=' . urlencode($selDiv));
     exit;
-  }
-  // Jika sudah pilih PON dan divisi, redirect ke halaman task detail
-  header('Location: task_detail.php?pon=' . urlencode($selPon) . '&div=' . urlencode($selDiv));
-  exit;
 }
 ?>
 <!DOCTYPE html>
 <html lang="id">
 
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Task List - <?= h($appName) ?></title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
-  <link rel="stylesheet"
-    href="assets/css/app.css?v=<?= file_exists('assets/css/app.css') ? filemtime('assets/css/app.css') : time() ?>">
-  <link rel="stylesheet"
-    href="assets/css/sidebar.css?v=<?= file_exists('assets/css/sidebar.css') ? filemtime('assets/css/sidebar.css') : time() ?>">
-  <link rel="stylesheet"
-    href="assets/css/layout.css?v=<?= file_exists('assets/css/layout.css') ? filemtime('assets/css/layout.css') : time() ?>">
-  <style>
-    /* Task List New Layout Styles */
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Task List - <?= h($appName) ?></title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="assets/css/app.css?v=<?= filemtime('assets/css/app.css') ?>">
+    <link rel="stylesheet" href="assets/css/sidebar.css?v=<?= filemtime('assets/css/sidebar.css') ?>">
+    <link rel="stylesheet" href="assets/css/layout.css?v=<?= filemtime('assets/css/layout.css') ?>">
+    <style>
+        /* Modern Task List Styles */
+        .dashboard-overview {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 30px;
+        }
 
-    /* Statistics Cards */
-    .stats-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 20px;
-      margin-bottom: 30px;
-    }
+        .overview-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
 
-    @media (max-width: 768px) {
-      .stats-grid {
-        grid-template-columns: 1fr;
-      }
-    }
+        .overview-header h2 {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--text);
+            margin: 0;
+        }
 
-    .stat-card {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      text-align: center;
-    }
+        .time-filter select {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 8px 12px;
+            color: var(--text);
+            font-size: 14px;
+        }
 
-    .stat-value {
-      font-size: 32px;
-      font-weight: 700;
-      color: var(--text);
-      margin-bottom: 8px;
-    }
+        .quick-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+        }
 
-    .stat-label {
-      font-size: 14px;
-      color: var(--muted);
-      font-weight: 500;
-    }
+        @media (max-width: 1024px) {
+            .quick-stats {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
 
-    /* Pie Chart for Progress Distribution */
-    .progress-chart {
-      position: relative;
-      width: 120px;
-      height: 120px;
-      margin: 0 auto 15px;
-    }
+        @media (max-width: 640px) {
+            .quick-stats {
+                grid-template-columns: 1fr;
+            }
+        }
 
-    .pie-chart {
-      width: 120px;
-      height: 120px;
-    }
+        .stat-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            transition: all 0.3s ease;
+        }
 
-    .chart-legend {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      justify-content: center;
-      margin-top: 10px;
-    }
+        .stat-card:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: #3b82f6;
+            transform: translateY(-2px);
+        }
 
-    .legend-item {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      font-size: 11px;
-      color: var(--muted);
-    }
+        .stat-card.primary {
+            border-left: 4px solid #3b82f6;
+        }
 
-    .legend-color {
-      width: 12px;
-      height: 12px;
-      border-radius: 2px;
-    }
+        .stat-card.success {
+            border-left: 4px solid #10b981;
+        }
 
-    /* PON Table Section */
-    .pon-section {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 20px;
-      height: 500px;
-      display: flex;
-      flex-direction: column;
-    }
+        .stat-card.warning {
+            border-left: 4px solid #f59e0b;
+        }
 
-    .section-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 20px;
-    }
+        .stat-card.info {
+            border-left: 4px solid #06b6d4;
+        }
 
-    .section-title {
-      font-size: 18px;
-      font-weight: 600;
-      color: var(--text);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
+        .stat-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
 
-    .search-container {
-      position: relative;
-      width: 300px;
-    }
+        .stat-card.primary .stat-icon {
+            background: rgba(59, 130, 246, 0.1);
+            color: #3b82f6;
+        }
 
-    .search-input {
-      width: 100%;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 10px 15px 10px 40px;
-      color: var(--text);
-      font-size: 14px;
-    }
+        .stat-card.success .stat-icon {
+            background: rgba(16, 185, 129, 0.1);
+            color: #10b981;
+        }
 
-    .search-input::placeholder {
-      color: var(--muted);
-    }
+        .stat-card.warning .stat-icon {
+            background: rgba(245, 158, 11, 0.1);
+            color: #f59e0b;
+        }
 
-    .search-icon {
-      position: absolute;
-      left: 12px;
-      top: 50%;
-      transform: translateY(-50%);
-      color: var(--muted);
-      font-size: 16px;
-    }
+        .stat-card.info .stat-icon {
+            background: rgba(6, 182, 212, 0.1);
+            color: #06b6d4;
+        }
 
-    .pon-table-container {
-      flex: 1;
-      overflow: auto;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-    }
+        .stat-content {
+            flex: 1;
+        }
 
-    .pon-table {
-      width: 100%;
-      min-width: 800px;
-      border-collapse: collapse;
-    }
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--text);
+            margin-bottom: 4px;
+        }
 
-    .pon-table thead {
-      background: rgba(255, 255, 255, 0.05);
-      position: sticky;
-      top: 0;
-      z-index: 1;
-    }
+        .stat-label {
+            font-size: 14px;
+            color: var(--muted);
+            font-weight: 500;
+        }
 
-    .pon-table th,
-    .pon-table td {
-      padding: 12px 15px;
-      text-align: left;
-      border-bottom: 1px solid var(--border);
-      font-size: 13px;
-    }
+        /* Projects Section */
+        .projects-section {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+        }
 
-    .pon-table th {
-      color: var(--muted);
-      font-weight: 600;
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
+        .section-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
 
-    .pon-table td {
-      color: var(--text);
-    }
+        .view-controls {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
 
-    .pon-table tbody tr {
-      cursor: pointer;
-      transition: background-color 0.2s;
-    }
+        .results-count {
+            font-size: 14px;
+            color: var(--muted);
+            font-weight: 500;
+        }
 
-    .pon-table tbody tr:hover {
-      background: rgba(255, 255, 255, 0.03);
-    }
+        .view-options {
+            display: flex;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 4px;
+        }
 
-    .status-badge {
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-    }
+        .view-option {
+            background: transparent;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            color: var(--muted);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
 
-    .status-progres {
-      background: rgba(59, 130, 246, 0.2);
-      color: #93c5fd;
-    }
+        .view-option.active {
+            background: #3b82f6;
+            color: white;
+        }
 
-    .status-selesai {
-      background: rgba(34, 197, 94, 0.2);
-      color: #86efac;
-    }
+        .filter-controls {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
 
-    .status-pending {
-      background: rgba(239, 68, 68, 0.2);
-      color: #fca5a5;
-    }
+        .search-box {
+            position: relative;
+            width: 250px;
+        }
 
-    .status-delayed {
-      background: rgba(245, 101, 101, 0.2);
-      color: #f87171;
-    }
+        .search-box i {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--muted);
+        }
 
-    /* Custom Scrollbar */
-    .pon-table-container::-webkit-scrollbar {
-      width: 6px;
-      height: 6px;
-    }
+        .search-box input {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px 12px 10px 36px;
+            color: var(--text);
+            font-size: 14px;
+        }
 
-    .pon-table-container::-webkit-scrollbar-track {
-      background: rgba(255, 255, 255, 0.1);
-      border-radius: 3px;
-    }
+        .search-box input::placeholder {
+            color: var(--muted);
+        }
 
-    .pon-table-container::-webkit-scrollbar-thumb {
-      background: rgba(147, 197, 253, 0.5);
-      border-radius: 3px;
-    }
+        .status-filter,
+        .type-filter {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px 12px;
+            color: var(--text);
+            font-size: 14px;
+            min-width: 140px;
+        }
 
-    .pon-table-container::-webkit-scrollbar-thumb:hover {
-      background: rgba(147, 197, 253, 0.7);
-    }
+        /* Projects Grid */
+        .projects-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+            gap: 20px;
+        }
 
-    /* Progress Bar in Table */
-    .progress-container {
-      width: 60px;
-      height: 6px;
-      background: rgba(255, 255, 255, 0.1);
-      border-radius: 3px;
-      overflow: hidden;
-    }
+        @media (max-width: 768px) {
+            .projects-grid {
+                grid-template-columns: 1fr;
+            }
+        }
 
-    .progress-bar {
-      height: 100%;
-      background: linear-gradient(90deg, #3b82f6, #06b6d4);
-      border-radius: 3px;
-      transition: width 0.3s ease;
-    }
+        .project-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+        }
 
-    /* Empty State */
-    .empty-state {
-      text-align: center;
-      color: var(--muted);
-      padding: 40px 20px;
-      font-size: 14px;
-    }
-  </style>
+        .project-card:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: #3b82f6;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 16px;
+        }
+
+        .project-id {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .project-status {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-progres {
+            background: rgba(59, 130, 246, 0.2);
+            color: #93c5fd;
+        }
+
+        .status-selesai {
+            background: rgba(34, 197, 94, 0.2);
+            color: #86efac;
+        }
+
+        .status-pending {
+            background: rgba(239, 68, 68, 0.2);
+            color: #fca5a5;
+        }
+
+        .status-delayed {
+            background: rgba(245, 158, 11, 0.2);
+            color: #fcd34d;
+        }
+
+        .project-info h4 {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text);
+            margin: 0 0 8px 0;
+        }
+
+        .project-type {
+            font-size: 14px;
+            color: var(--muted);
+            margin: 0 0 12px 0;
+        }
+
+        .project-meta {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .meta-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .meta-item i {
+            font-size: 14px;
+        }
+
+        /* Progress Section */
+        .progress-section {
+            margin: 16px 0;
+            padding: 16px 0;
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .progress-header span {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .progress-value {
+            color: #3b82f6 !important;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 12px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3b82f6, #06b6d4);
+            border-radius: 3px;
+            transition: width 0.3s ease;
+        }
+
+        .division-progress {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .division-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .division-color {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .division-name {
+            font-size: 10px;
+            color: var(--muted);
+            font-weight: 500;
+        }
+
+        /* Card Actions */
+        .card-actions {
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .btn-view {
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            color: #3b82f6;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            transition: all 0.2s;
+        }
+
+        .btn-view:hover {
+            background: rgba(59, 130, 246, 0.2);
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--muted);
+        }
+
+        .empty-state i {
+            font-size: 48px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        .empty-state p {
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .clear-filters {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 8px 16px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+
+        .clear-filters:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+    </style>
 </head>
 
 <body>
-  <div class="layout">
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="logo" aria-hidden="true"></div>
-      </div>
-      <nav class="nav">
-        <a class="<?= $activeMenu === 'Dashboard' ? 'active' : '' ?>" href="dashboard.php"><span class="icon bi-house"></span> Dashboard</a>
-        <a class="<?= $activeMenu === 'PON' ? 'active' : '' ?>" href="pon.php"><span class="icon bi-journal-text"></span> PON</a>
-        <a class="<?= $activeMenu === 'Task List' ? 'active' : '' ?>" href="tasklist.php"><span class="icon bi-list-check"></span> Task List</a>
-        <a class="<?= $activeMenu === 'Progres Divisi' ? 'active' : '' ?>" href="progres_divisi.php"><span class="icon bi-bar-chart"></span> Progres Divisi</a>
-        <a href="logout.php"><span class="icon bi-box-arrow-right"></span> Logout</a>
-      </nav>
-    </aside>
+    <div class="layout">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="logo" aria-hidden="true"></div>
+            </div>
+            <nav class="nav">
+                <a class="<?= $activeMenu === 'Dashboard' ? 'active' : '' ?>" href="dashboard.php"><span class="icon bi-house"></span> Dashboard</a>
+                <a class="<?= $activeMenu === 'PON' ? 'active' : '' ?>" href="pon.php"><span class="icon bi-journal-text"></span> PON</a>
+                <a class="<?= $activeMenu === 'Task List' ? 'active' : '' ?>" href="tasklist.php"><span class="icon bi-list-check"></span> Task List</a>
+                <a class="<?= $activeMenu === 'Progres Divisi' ? 'active' : '' ?>" href="progres_divisi.php"><span class="icon bi-bar-chart"></span> Progres Divisi</a>
+                <a href="logout.php"><span class="icon bi-box-arrow-right"></span> Logout</a>
+            </nav>
+        </aside>
 
-    <header class="header">
-      <div class="title">Task List</div>
-      <div class="meta">
-        <div>Server: <?= h($server) ?></div>
-        <div>PHP <?= PHP_VERSION ?></div>
-        <div><span id="clock" data-epoch="<?= $nowEpoch ?>">—</span> WIB</div>
-      </div>
-    </header>
+        <header class="header">
+            <div class="title">Task List</div>
+            <div class="meta">
+                <div>Server: <?= h($server) ?></div>
+                <div>PHP <?= PHP_VERSION ?></div>
+                <div><span id="clock" data-epoch="<?= $nowEpoch ?>">—</span> WIB</div>
+            </div>
+        </header>
 
-    <main class="content">
-      <!-- Statistics Cards -->
-      <div class="stats-grid">
-        <!-- Total Task -->
-        <div class="stat-card">
-          <div class="stat-value"><?= $totalTasks ?></div>
-          <div class="stat-label">Total Task</div>
-        </div>
-
-        <!-- Task Selesai -->
-        <div class="stat-card">
-          <div class="stat-value"><?= $completedTasks ?></div>
-          <div class="stat-label">Task Selesai</div>
-        </div>
-
-        <!-- Rata-rata Progress dengan Pie Chart -->
-        <div class="stat-card">
-          <div class="progress-chart">
-            <svg class="pie-chart" viewBox="0 0 42 42">
-              <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="rgba(255,255,255,0.1)" stroke-width="3"></circle>
-              <circle cx="21" cy="21" r="15.915" fill="transparent"
-                stroke="#3b82f6" stroke-width="3"
-                stroke-dasharray="<?= $avgProgress ?> 100"
-                stroke-dashoffset="25"
-                stroke-linecap="round"></circle>
-              <text x="21" y="25" text-anchor="middle" fill="var(--text)" font-size="8" font-weight="600">
-                <?= $avgProgress ?>%
-              </text>
-            </svg>
-          </div>
-          <div class="stat-label">Rata-rata Progress</div>
-
-          <!-- Legend for Bridge Types -->
-          <div class="chart-legend">
-            <?php
-            $colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
-            $i = 0;
-            foreach ($typeDistribution as $type => $count):
-            ?>
-              <div class="legend-item">
-                <div class="legend-color" style="background: <?= $colors[$i % count($colors)] ?>"></div>
-                <span><?= h($type) ?></span>
-              </div>
-            <?php
-              $i++;
-            endforeach;
-            ?>
-          </div>
-        </div>
-      </div>
-
-      <!-- PON Table Section -->
-      <div class="pon-section">
-        <div class="section-header">
-          <div class="section-title">
-            <i class="bi bi-table"></i>
-            Daftar PON
-          </div>
-          <div class="search-container">
-            <form method="GET" action="">
-              <div style="position: relative;">
-                <i class="bi bi-search search-icon"></i>
-                <input type="text" name="search" class="search-input"
-                  placeholder="Cari PON/Type/Status..."
-                  value="<?= h($searchQuery) ?>">
-              </div>
-            </form>
-          </div>
-        </div>
-
-        <div class="pon-table-container">
-          <table class="pon-table">
-            <thead>
-              <tr>
-                <th>PON</th>
-                <th>Client</th>
-                <th>Tipe Jembatan</th>
-                <th>Tipe Pekerjaan</th>
-                <th>Start</th>
-                <th>Finish</th>
-                <th>Progress</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              <?php if (empty($filteredPonRecords)): ?>
-                <tr>
-                  <td colspan="8">
-                    <div class="empty-state">
-                      <?php if ($searchQuery): ?>
-                        Tidak ada PON yang cocok dengan pencarian "<?= h($searchQuery) ?>"
-                      <?php else: ?>
-                        Belum ada data PON
-                      <?php endif; ?>
+        <main class="content">
+            <!-- Overview Section -->
+            <div class="dashboard-overview">
+                <div class="overview-header">
+                    <h2>Project Overview</h2>
+                    <div class="time-filter">
+                        <select class="filter-select">
+                            <option>All Time</option>
+                            <option>This Month</option>
+                            <option>This Week</option>
+                        </select>
                     </div>
-                  </td>
-                </tr>
-              <?php else: ?>
-                <?php foreach ($filteredPonRecords as $pon):
-                  $progress = (int)($pon['progress'] ?? 0);
-                  $status = strtolower($pon['status'] ?? 'progres');
-                  $statusClass = 'status-' . str_replace(' ', '-', $status);
-                ?>
-                  <tr onclick="window.location.href='task_divisions.php?pon=<?= urlencode($pon['pon']) ?>'">
-                    <td><strong><?= h($pon['pon']) ?></strong></td>
-                    <td><?= h($pon['client'] ?? '-') ?></td>
-                    <td><?= h($pon['type'] ?? '-') ?></td>
-                    <td><?= h($pon['job_type'] ?? '-') ?></td>
-                    <td><?= h(dmy($pon['date_pon'] ?? null)) ?></td>
-                    <td><?= h(dmy($pon['date_finish'] ?? null)) ?></td>
-                    <td>
-                      <div style="display: flex; align-items: center; gap: 8px;">
-                        <div class="progress-container">
-                          <div class="progress-bar" style="width: <?= $progress ?>%"></div>
+                </div>
+
+                <div class="quick-stats">
+                    <div class="stat-card primary">
+                        <div class="stat-icon">
+                            <i class="bi bi-folder"></i>
                         </div>
-                        <span style="font-size: 12px; color: var(--muted);"><?= $progress ?>%</span>
-                      </div>
-                    </td>
-                    <td>
-                      <span class="status-badge <?= $statusClass ?>"><?= h(ucfirst($status)) ?></span>
-                    </td>
-                  </tr>
-                <?php endforeach; ?>
-              <?php endif; ?>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </main>
+                        <div class="stat-content">
+                            <div class="stat-value"><?= $integratedTotal ?></div>
+                            <div class="stat-label">Total Tasks</div>
+                        </div>
+                    </div>
 
-    <footer class="footer">© <?= date('Y') ?> <?= h($appName) ?> • Dibangun cepat dengan PHP</footer>
-  </div>
+                    <div class="stat-card success">
+                        <div class="stat-icon">
+                            <i class="bi bi-check-circle"></i>
+                        </div>
+                        <div class="stat-content">
+                            <div class="stat-value"><?= $integratedDone ?></div>
+                            <div class="stat-label">Tasks Selesai</div>
+                        </div>
+                    </div>
 
-  <script>
-    (function() {
-      const el = document.getElementById('clock');
-      if (!el) return;
-      const tz = 'Asia/Jakarta';
-      let now = new Date(Number(el.dataset.epoch) * 1000);
+                    <div class="stat-card warning">
+                        <div class="stat-icon">
+                            <i class="bi bi-clock"></i>
+                        </div>
+                        <div class="stat-content">
+                            <div class="stat-value"><?= $integratedTotal - $integratedDone ?></div>
+                            <div class="stat-label">Tasks On Progress</div>
+                        </div>
+                    </div>
 
-      function tick() {
-        now = new Date(now.getTime() + 1000);
-        el.textContent = now.toLocaleString('id-ID', {
-          timeZone: tz,
-          hour12: false
+                    <div class="stat-card info">
+                        <div class="stat-icon">
+                            <i class="bi bi-speedometer2"></i>
+                        </div>
+                        <div class="stat-content">
+                            <div class="stat-value"><?= $avgProgress ?>%</div>
+                            <div class="stat-label">Rata-rata Progress</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Projects Section -->
+            <div class="projects-section">
+                <div class="section-toolbar">
+                    <div class="view-controls">
+                        <span class="results-count">Showing <?= count($filteredPonRecords) ?> projects</span>
+                        <div class="view-options">
+                            <button class="view-option active" data-view="card">
+                                <i class="bi bi-grid"></i>
+                            </button>
+                            <button class="view-option" data-view="table">
+                                <i class="bi bi-list"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="filter-controls">
+                        <form method="GET" action="" class="search-box">
+                            <i class="bi bi-search"></i>
+                            <input type="text" name="search" placeholder="Search projects..." 
+                                value="<?= h($searchQuery) ?>">
+                        </form>
+                        
+                        <select class="status-filter" onchange="this.form.submit()" name="status">
+                            <option value="">All Status</option>
+                            <option value="progres" <?= $statusFilter === 'progres' ? 'selected' : '' ?>>In Progress</option>
+                            <option value="selesai" <?= $statusFilter === 'selesai' ? 'selected' : '' ?>>Completed</option>
+                            <option value="pending" <?= $statusFilter === 'pending' ? 'selected' : '' ?>>Pending</option>
+                        </select>
+                        
+                        <select class="type-filter" onchange="this.form.submit()" name="type">
+                            <option value="">All Types</option>
+                            <option value="rangka" <?= $typeFilter === 'rangka' ? 'selected' : '' ?>>Rangka</option>
+                            <option value="gantung" <?= $typeFilter === 'gantung' ? 'selected' : '' ?>>Gantung</option>
+                            <option value="bailey" <?= $typeFilter === 'bailey' ? 'selected' : '' ?>>Bailey</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="content-area">
+                    <!-- Card View -->
+                    <div class="projects-grid view-active" id="card-view">
+                        <?php if (empty($filteredPonRecords)): ?>
+                            <div class="empty-state" style="grid-column: 1 / -1;">
+                                <i class="bi bi-inbox"></i>
+                                <p>
+                                    <?php if ($searchQuery || $statusFilter || $typeFilter): ?>
+                                        No projects found matching your filters.
+                                    <?php else: ?>
+                                        No projects available.
+                                    <?php endif; ?>
+                                </p>
+                                <?php if ($searchQuery || $statusFilter || $typeFilter): ?>
+                                    <a href="tasklist.php" class="clear-filters">
+                                        Clear Filters
+                                    </a>
+                                <?php endif; ?>
+                            </div>
+                        <?php else: ?>
+                            <?php foreach ($filteredPonRecords as $pon): 
+                                $progress = getIntegratedProgress($pon['pon']);
+                                $status = strtolower($pon['status'] ?? 'progres');
+                            ?>
+                            <div class="project-card" onclick="window.location.href='task_divisions.php?pon=<?= urlencode($pon['pon']) ?>'">
+                                <!-- Card Header -->
+                                <div class="card-header">
+                                    <div class="project-id"><?= h($pon['pon']) ?></div>
+                                    <div class="project-status status-<?= $status ?>">
+                                        <?= h(ucfirst($status)) ?>
+                                    </div>
+                                </div>
+
+                                <!-- Project Info -->
+                                <div class="project-info">
+                                    <h4 class="project-name"><?= h($pon['client'] ?? 'No Client') ?></h4>
+                                    <p class="project-type"><?= h($pon['type'] ?? 'No Type') ?></p>
+                                    <div class="project-meta">
+                                        <div class="meta-item">
+                                            <i class="bi bi-calendar"></i>
+                                            <?= h(dmy($pon['date_pon'] ?? 'N/A')) ?>
+                                        </div>
+                                        <div class="meta-item">
+                                            <i class="bi bi-briefcase"></i>
+                                            <?= h($pon['job_type'] ?? 'N/A') ?>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Progress Section -->
+                                <div class="progress-section">
+                                    <div class="progress-header">
+                                        <span>Overall Progress</span>
+                                        <span class="progress-value"><?= $progress ?>%</span>
+                                    </div>
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" style="width: <?= $progress ?>%"></div>
+                                    </div>
+                                    
+                                    <!-- Mini Division Progress -->
+                                    <div class="division-progress">
+                                        <?php
+                                        $divisions = ['Engineering', 'Purchasing', 'Pabrikasi', 'Logistik'];
+                                        $colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
+                                        ?>
+                                        <?php foreach ($divisions as $index => $div): ?>
+                                        <div class="division-item">
+                                            <div class="division-color" style="background: <?= $colors[$index] ?>"></div>
+                                            <span class="division-name"><?= substr($div, 0, 3) ?></span>
+                                        </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </div>
+
+                                <!-- Quick Actions -->
+                                <div class="card-actions">
+                                    <button class="btn-view" onclick="event.stopPropagation(); window.location.href='task_divisions.php?pon=<?= urlencode($pon['pon']) ?>'">
+                                        <i class="bi bi-eye"></i>
+                                        View Details
+                                    </button>
+                                </div>
+                            </div>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer class="footer">© <?= date('Y') ?> <?= h($appName) ?> • Modern Task List</footer>
+    </div>
+
+    <script>
+        (function() {
+            const el = document.getElementById('clock');
+            if (!el) return;
+            const tz = 'Asia/Jakarta';
+            let now = new Date(Number(el.dataset.epoch) * 1000);
+
+            function tick() {
+                now = new Date(now.getTime() + 1000);
+                el.textContent = now.toLocaleString('id-ID', {
+                    timeZone: tz,
+                    hour12: false
+                });
+            }
+            tick();
+            setInterval(tick, 1000);
+        })();
+
+        // View Toggle Functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            const viewOptions = document.querySelectorAll('.view-option');
+            
+            viewOptions.forEach(option => {
+                option.addEventListener('click', function() {
+                    // Remove active class from all options
+                    viewOptions.forEach(opt => opt.classList.remove('active'));
+                    // Add active class to clicked option
+                    this.classList.add('active');
+                    
+                    const viewType = this.getAttribute('data-view');
+                    // Here you can implement view switching logic
+                    console.log('Switching to view:', viewType);
+                });
+            });
+
+            // Auto-submit search on typing (with debounce)
+            let searchTimeout;
+            const searchInput = document.querySelector('.search-box input');
+            if (searchInput) {
+                searchInput.addEventListener('input', function() {
+                    clearTimeout(searchTimeout);
+                    searchTimeout = setTimeout(() => {
+                        this.closest('form').submit();
+                    }, 500);
+                });
+            }
         });
-      }
-      tick();
-      setInterval(tick, 1000);
-    })();
 
-    // Auto-submit search on typing (with debounce)
-    let searchTimeout;
-    const searchInput = document.querySelector('.search-input');
-    if (searchInput) {
-      searchInput.addEventListener('input', function() {
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => {
-          this.form.submit();
-        }, 500);
-      });
-    }
-
-    // Clear search when clicking clear button
-    function clearSearch() {
-      window.location.href = 'tasklist.php';
-    }
-  </script>
+        // Clear filters function
+        function clearFilters() {
+            window.location.href = 'tasklist.php';
+        }
+    </script>
 </body>
 
 </html>
