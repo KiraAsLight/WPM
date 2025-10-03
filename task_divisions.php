@@ -32,44 +32,321 @@ if (!$ponRecord) {
 // Get all tasks for this PON
 $allTasks = fetchAll('SELECT * FROM tasks WHERE pon = ?', [$ponCode]);
 
-// Calculate overall statistics
+// === INTEGRASI DATA FABRIKASI ===
+$fabrikasiItems = fetchAll('SELECT * FROM fabrikasi_items WHERE pon = ?', [$ponCode]);
+
+// === INTEGRASI DATA LOGISTIK ===
+// Get logistik workshop data
+$logistikWorkshopItems = fetchAll('SELECT * FROM logistik_workshop WHERE pon = ?', [$ponCode]);
+
+// Get logistik site data  
+$logistikSiteItems = fetchAll('SELECT * FROM logistik_site WHERE pon = ?', [$ponCode]);
+
+// Hitung statistik logistik workshop (dengan status baru)
+$workshopTerkirim = 0;
+$workshopBelumTerkirim = 0;
+
+if (!empty($logistikWorkshopItems)) {
+    foreach ($logistikWorkshopItems as $item) {
+        if ($item['status'] === 'Terkirim') {
+            $workshopTerkirim++;
+        } else {
+            $workshopBelumTerkirim++;
+        }
+    }
+}
+
+// Hitung statistik logistik site (dengan status baru)
+$siteDiterima = 0;
+$siteMenunggu = 0;
+
+if (!empty($logistikSiteItems)) {
+    foreach ($logistikSiteItems as $item) {
+        if ($item['status'] === 'Diterima') {
+            $siteDiterima++;
+        } else {
+            $siteMenunggu++;
+        }
+    }
+}
+
+// Gabungkan data logistik workshop + site
+$logistikTotalItems = count($logistikWorkshopItems) + count($logistikSiteItems);
+$logistikSelesai = $workshopTerkirim + $siteDiterima;
+$logistikBelumSelesai = $workshopBelumTerkirim + $siteMenunggu;
+
+// Hitung persentase untuk logistik (mapping ke ToDo/Done)
+$logistikDonePercent = $logistikTotalItems > 0 ? round(($logistikSelesai / $logistikTotalItems) * 100) : 0;
+$logistikTodoPercent = 100 - $logistikDonePercent;
+
+// Calculate overall statistics - INTEGRATE FABRIKASI & LOGISTIK DATA
 $totalTasks = count($allTasks);
+$totalFabrikasiItems = count($fabrikasiItems);
+
+// Hitung status tasks
 $todoTasks = count(array_filter($allTasks, fn($t) => strtolower($t['status'] ?? '') === 'todo'));
 $onProgressTasks = count(array_filter($allTasks, fn($t) => strtolower($t['status'] ?? '') === 'on proses'));
 $doneTasks = count(array_filter($allTasks, fn($t) => strtolower($t['status'] ?? '') === 'done'));
 
-// Calculate percentages for overall pie chart
-$todoPercent = $totalTasks > 0 ? round(($todoTasks / $totalTasks) * 100) : 0;
-$progressPercent = $totalTasks > 0 ? round(($onProgressTasks / $totalTasks) * 100) : 0;
-$donePercent = $totalTasks > 0 ? round(($doneTasks / $totalTasks) * 100) : 0;
+// Hitung status fabrikasi items
+$fabrikasiTodo = 0;
+$fabrikasiProgress = 0;
+$fabrikasiDone = 0;
+
+if (!empty($fabrikasiItems)) {
+    foreach ($fabrikasiItems as $item) {
+        $progress = $item['progress_calculated'] ?? 0;
+        if ($progress == 100) {
+            $fabrikasiDone++;
+        } elseif ($progress > 0) {
+            $fabrikasiProgress++;
+        } else {
+            $fabrikasiTodo++;
+        }
+    }
+}
+
+// INTEGRATE: Total Items/Tasks = Tasks dari divisi lain + Items dari fabrikasi + Items dari logistik
+$integratedTotal = $totalTasks + $totalFabrikasiItems + $logistikTotalItems;
+$integratedTodo = $todoTasks + $fabrikasiTodo + $logistikBelumSelesai;
+$integratedProgress = $onProgressTasks + $fabrikasiProgress;
+$integratedDone = $doneTasks + $fabrikasiDone + $logistikSelesai;
+
+// Calculate percentages for integrated data
+$todoPercent = $integratedTotal > 0 ? round(($integratedTodo / $integratedTotal) * 100) : 0;
+$progressPercent = $integratedTotal > 0 ? round(($integratedProgress / $integratedTotal) * 100) : 0;
+$donePercent = $integratedTotal > 0 ? round(($integratedDone / $integratedTotal) * 100) : 0;
+
+// Calculate overall project progress (include fabrikasi & logistik)
+$totalProgressValue = 0;
+$maxProgressValue = 0;
+
+// Progress dari tasks
+foreach ($allTasks as $task) {
+    $maxProgressValue += 100;
+    $totalProgressValue += (int)($task['progress'] ?? 0);
+}
+
+// Progress dari fabrikasi items
+foreach ($fabrikasiItems as $item) {
+    $maxProgressValue += 100;
+    $totalProgressValue += ($item['progress_calculated'] ?? 0);
+}
+
+// Progress dari logistik items
+foreach ($logistikWorkshopItems as $item) {
+    $maxProgressValue += 100;
+    $totalProgressValue += ($item['progress'] ?? 0);
+}
+
+foreach ($logistikSiteItems as $item) {
+    $maxProgressValue += 100;
+    $totalProgressValue += ($item['progress'] ?? 0);
+}
+
+$overallProgress = $maxProgressValue > 0 ? round(($totalProgressValue / $maxProgressValue) * 100) : 0;
 
 // Calculate division statistics
-$divisions = ['Engineering', 'Logistik', 'Pabrikasi', 'Purchasing'];
+$divisions = ['Engineering', 'Purchasing', 'Pabrikasi', 'Logistik'];
 $divisionStats = [];
 
 foreach ($divisions as $div) {
-    $divTasks = array_filter($allTasks, fn($t) => $t['division'] === $div);
-    $divTotal = count($divTasks);
-    $divTodo = count(array_filter($divTasks, fn($t) => strtolower($t['status'] ?? '') === 'todo'));
-    $divProgress = count(array_filter($divTasks, fn($t) => strtolower($t['status'] ?? '') === 'on proses'));
-    $divDone = count(array_filter($divTasks, fn($t) => strtolower($t['status'] ?? '') === 'done'));
+    if ($div === 'Pabrikasi') {
+        // KONSISTEN DENGAN DIVISI LAIN: Task = Item, Status berdasarkan progress
+        $fabrikasiItems = fetchAll('SELECT * FROM fabrikasi_items WHERE pon = ?', [$ponCode]);
 
-    // Calculate percentages
-    $divTodoPercent = $divTotal > 0 ? round(($divTodo / $divTotal) * 100) : 0;
-    $divProgressPercent = $divTotal > 0 ? round(($divProgress / $divTotal) * 100) : 0;
-    $divDonePercent = $divTotal > 0 ? round(($divDone / $divTotal) * 100) : 0;
+        if (!empty($fabrikasiItems)) {
+            $totalItems = count($fabrikasiItems);
 
-    $divisionStats[$div] = [
-        'name' => $div,
-        'total' => $divTotal,
-        'todo' => $divTodo,
-        'progress' => $divProgress,
-        'done' => $divDone,
-        'todo_percent' => $divTodoPercent,
-        'progress_percent' => $divProgressPercent,
-        'done_percent' => $divDonePercent
-    ];
+            // Hitung status berdasarkan progress_calculated
+            $doneItems = count(array_filter($fabrikasiItems, fn($i) => ($i['progress_calculated'] ?? 0) == 100));
+            $progressItems = count(array_filter($fabrikasiItems, fn($i) => ($i['progress_calculated'] ?? 0) > 0 && ($i['progress_calculated'] ?? 0) < 100));
+            $todoItems = $totalItems - $doneItems - $progressItems;
+
+            // Map ke status yang sama seperti divisi lain
+            $divisionStats[$div] = [
+                'name' => $div,
+                'total' => $totalItems,
+                'todo' => $todoItems,
+                'progress' => $progressItems,
+                'done' => $doneItems,
+                'todo_percent' => $totalItems > 0 ? round(($todoItems / $totalItems) * 100) : 0,
+                'progress_percent' => $totalItems > 0 ? round(($progressItems / $totalItems) * 100) : 0,
+                'done_percent' => $totalItems > 0 ? round(($doneItems / $totalItems) * 100) : 0
+            ];
+        } else {
+            // Fallback jika tidak ada data fabrikasi
+            $divTasks = array_filter($allTasks, fn($t) => $t['division'] === $div);
+            $divTotal = count($divTasks);
+            $divTodo = count(array_filter($divTasks, fn($t) => strtolower($t['status'] ?? '') === 'todo'));
+            $divProgress = count(array_filter($divTasks, fn($t) => strtolower($t['status'] ?? '') === 'on proses'));
+            $divDone = count(array_filter($divTasks, fn($t) => strtolower($t['status'] ?? '') === 'done'));
+
+            $divisionStats[$div] = [
+                'name' => $div,
+                'total' => $divTotal,
+                'todo' => $divTodo,
+                'progress' => $divProgress,
+                'done' => $divDone,
+                'todo_percent' => $divTotal > 0 ? round(($divTodo / $divTotal) * 100) : 0,
+                'progress_percent' => $divTotal > 0 ? round(($divProgress / $divTotal) * 100) : 0,
+                'done_percent' => $divTotal > 0 ? round(($divDone / $divTotal) * 100) : 0
+            ];
+        }
+    } elseif ($div === 'Logistik') {
+        // Gunakan data dari logistik_workshop dan logistik_site dengan mapping status
+        $divisionStats[$div] = [
+            'name' => $div,
+            'total' => $logistikTotalItems,
+            'todo' => $logistikBelumSelesai,      // Belum Terkirim/Menunggu = To Do
+            'progress' => 0,                      // Logistik tidak ada status progress
+            'done' => $logistikSelesai,           // Terkirim/Diterima = Done
+            'todo_percent' => $logistikTodoPercent,
+            'progress_percent' => 0,              // Tidak ada progress
+            'done_percent' => $logistikDonePercent
+        ];
+    } else {
+        // Normal calculation for other divisions
+        $divTasks = array_filter($allTasks, fn($t) => $t['division'] === $div);
+        $divTotal = count($divTasks);
+        $divTodo = count(array_filter($divTasks, fn($t) => strtolower($t['status'] ?? '') === 'todo'));
+        $divProgress = count(array_filter($divTasks, fn($t) => strtolower($t['status'] ?? '') === 'on proses'));
+        $divDone = count(array_filter($divTasks, fn($t) => strtolower($t['status'] ?? '') === 'done'));
+
+        $divisionStats[$div] = [
+            'name' => $div,
+            'total' => $divTotal,
+            'todo' => $divTodo,
+            'progress' => $divProgress,
+            'done' => $divDone,
+            'todo_percent' => $divTotal > 0 ? round(($divTodo / $divTotal) * 100) : 0,
+            'progress_percent' => $divTotal > 0 ? round(($divProgress / $divTotal) * 100) : 0,
+            'done_percent' => $divTotal > 0 ? round(($divDone / $divTotal) * 100) : 0
+        ];
+    }
 }
+
+// Calculate division statistics for bar chart - INTEGRATE FABRIKASI & LOGISTIK
+$divisionStatusStats = [];
+$statusList = ['To Do', 'On Proses', 'Hold', 'Waiting Approve', 'Done'];
+
+// HITUNG INTEGRATED TOTALS TERPISAH
+$integratedStatusCounts = [
+    'To Do' => 0,
+    'On Proses' => 0,
+    'Hold' => 0,
+    'Waiting Approve' => 0,
+    'Done' => 0
+];
+
+foreach ($divisions as $div) {
+    if ($div === 'Pabrikasi') {
+        // Untuk Pabrikasi, gunakan data dari fabrikasi_items
+        $fabrikasiItems = fetchAll('SELECT * FROM fabrikasi_items WHERE pon = ?', [$ponCode]);
+
+        $statusCounts = [
+            'To Do' => 0,
+            'On Proses' => 0,
+            'Hold' => 0,
+            'Waiting Approve' => 0,
+            'Done' => 0
+        ];
+
+        if (!empty($fabrikasiItems)) {
+            foreach ($fabrikasiItems as $item) {
+                $progress = $item['progress_calculated'] ?? 0;
+                if ($progress == 100) {
+                    $statusCounts['Done']++;
+                    $integratedStatusCounts['Done']++;
+                } elseif ($progress > 0) {
+                    $statusCounts['On Proses']++;
+                    $integratedStatusCounts['On Proses']++;
+                } else {
+                    $statusCounts['To Do']++;
+                    $integratedStatusCounts['To Do']++;
+                }
+            }
+        }
+
+        $divisionStatusStats[$div] = [
+            'name' => $div,
+            'total' => count($fabrikasiItems),
+            'statuses' => $statusCounts
+        ];
+    } elseif ($div === 'Logistik') {
+        // Untuk Logistik, gunakan data dari logistik_workshop dan logistik_site
+        $statusCounts = [
+            'To Do' => 0,
+            'On Proses' => 0,
+            'Hold' => 0,
+            'Waiting Approve' => 0,
+            'Done' => 0
+        ];
+
+        // Mapping status logistik ke status standar
+        // Belum Terkirim/Menunggu = To Do, Terkirim/Diterima = Done
+
+        // Process workshop items
+        foreach ($logistikWorkshopItems as $item) {
+            if ($item['status'] === 'Terkirim') {
+                $statusCounts['Done']++;
+                $integratedStatusCounts['Done']++;
+            } else {
+                $statusCounts['To Do']++;
+                $integratedStatusCounts['To Do']++;
+            }
+        }
+
+        // Process site items
+        foreach ($logistikSiteItems as $item) {
+            if ($item['status'] === 'Diterima') {
+                $statusCounts['Done']++;
+                $integratedStatusCounts['Done']++;
+            } else {
+                $statusCounts['To Do']++;
+                $integratedStatusCounts['To Do']++;
+            }
+        }
+
+        $divisionStatusStats[$div] = [
+            'name' => $div,
+            'total' => $logistikTotalItems,
+            'statuses' => $statusCounts
+        ];
+    } else {
+        // Normal calculation for other divisions
+        $divTasks = array_filter($allTasks, fn($t) => $t['division'] === $div);
+
+        $statusCounts = [
+            'To Do' => 0,
+            'On Proses' => 0,
+            'Hold' => 0,
+            'Waiting Approve' => 0,
+            'Done' => 0
+        ];
+
+        foreach ($divTasks as $task) {
+            $status = $task['status'] ?? 'To Do';
+            if (isset($statusCounts[$status])) {
+                $statusCounts[$status]++;
+                $integratedStatusCounts[$status]++;
+            }
+        }
+
+        $divisionStatusStats[$div] = [
+            'name' => $div,
+            'total' => count($divTasks),
+            'statuses' => $statusCounts
+        ];
+    }
+}
+
+// TAMBAHKAN INTEGRATED KE ARRAY UTAMA
+$divisionStatusStats['Integrated'] = [
+    'name' => 'Total',
+    'total' => $integratedTotal,
+    'statuses' => $integratedStatusCounts
+];
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -385,6 +662,64 @@ foreach ($divisions as $div) {
         .view-task-btn:hover {
             background: #4b5563;
         }
+
+        /* Warna bar berdasarkan status */
+        .bar-fill.bg-gray {
+            background: linear-gradient(90deg, #9ca3af, #6b7280);
+        }
+
+        .bar-fill.bg-blue {
+            background: linear-gradient(90deg, #3b82f6, #2563eb);
+        }
+
+        .bar-fill.bg-yellow {
+            background: linear-gradient(90deg, #f59e0b, #d97706);
+        }
+
+        .bar-fill.bg-purple {
+            background: linear-gradient(90deg, #a855f7, #9333ea);
+        }
+
+        .bar-fill.bg-green {
+            background: linear-gradient(90deg, #10b981, #059669);
+        }
+
+        /* Styling teks di dalam bar */
+        .bar-progress-text {
+            position: absolute;
+            right: 4px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 10px;
+            color: white;
+            font-weight: 600;
+            text-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+            white-space: nowrap;
+            padding: 0 4px;
+            border-radius: 4px;
+        }
+
+        /* Agar bar bisa overlap tanpa error */
+        .bar-container {
+            position: relative;
+            height: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 0 12px;
+        }
+
+        .bar-fill {
+            position: absolute;
+            top: 0;
+            height: 100%;
+            border-radius: 10px;
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 4px;
+        }
     </style>
 </head>
 
@@ -415,9 +750,9 @@ foreach ($divisions as $div) {
         <main class="content">
             <!-- Overview Statistics -->
             <div class="overview-grid">
-                <!-- Total Task Keseluruhan -->
+                <!-- Total Task Keseluruhan (INTEGRATED) -->
                 <div class="overview-card">
-                    <div class="card-title">Total Task Keseluruhan</div>
+                    <div class="card-title">Total Task & Item Keseluruhan</div>
                     <div class="pie-chart-container">
                         <svg class="pie-chart" viewBox="0 0 42 42">
                             <!-- To Do -->
@@ -425,53 +760,113 @@ foreach ($divisions as $div) {
                                 fill="transparent" stroke="#9ca3af" stroke-width="3"
                                 stroke-dasharray="<?= $todoPercent ?> <?= 100 - $todoPercent ?>"
                                 stroke-dashoffset="25"
-                                data-tooltip="To Do (<?= $todoTasks ?> tasks)"
+                                data-tooltip="To Do (<?= $integratedTodo ?> items/tasks)"
                                 onmouseover="showTooltip(event, this)" onmouseout="hideTooltip()"></circle>
                             <!-- On Progress -->
                             <circle class="pie-slice" cx="21" cy="21" r="15.915"
                                 fill="transparent" stroke="#06b6d4" stroke-width="3"
                                 stroke-dasharray="<?= $progressPercent ?> <?= 100 - $progressPercent ?>"
                                 stroke-dashoffset="<?= 25 - $todoPercent ?>"
-                                data-tooltip="On Progress (<?= $onProgressTasks ?> tasks)"
+                                data-tooltip="On Progress (<?= $integratedProgress ?> items/tasks)"
                                 onmouseover="showTooltip(event, this)" onmouseout="hideTooltip()"></circle>
                             <!-- Done -->
                             <circle class="pie-slice" cx="21" cy="21" r="15.915"
                                 fill="transparent" stroke="#10b981" stroke-width="3"
                                 stroke-dasharray="<?= $donePercent ?> <?= 100 - $donePercent ?>"
                                 stroke-dashoffset="<?= 25 - $todoPercent - $progressPercent ?>"
-                                data-tooltip="Done (<?= $doneTasks ?> tasks)"
+                                data-tooltip="Done (<?= $integratedDone ?> items/tasks)"
                                 onmouseover="showTooltip(event, this)" onmouseout="hideTooltip()"></circle>
                             <!-- Center text -->
                             <text x="21" y="21" text-anchor="middle" fill="var(--text)" font-size="6" font-weight="600">
-                                <?= $totalTasks ?>
+                                <?= $integratedTotal ?>
                             </text>
                             <text x="21" y="26" text-anchor="middle" fill="var(--muted)" font-size="4">
-                                Total Tasks
+                                Total
+                            </text>
+                            <text x="21" y="31" text-anchor="middle" fill="#3b82f6" font-size="3" font-weight="600">
+                                Progress: <?= $overallProgress ?>%
                             </text>
                         </svg>
                         <div class="tooltip" id="tooltip"></div>
                     </div>
+                    <div style="text-align: center; margin-top: 12px; font-size: 12px; color: var(--muted);">
+                        <div>Tasks/Items: <?= $integratedTotal ?></div>
+                        <div>Progress Overall: <?= $overallProgress ?>%</div>
+                    </div>
                 </div>
 
-                <!-- Jumlah Task Per-Divisi -->
+                <!-- Jumlah Task & Item Per-Divisi (INTEGRATED) -->
                 <div class="overview-card">
-                    <div class="card-title">Jumlah Task Per-Divisi</div>
+                    <div class="card-title">Jumlah Task & Item Per-Divisi</div>
                     <div class="bar-chart">
                         <?php
-                        $maxTasks = max(array_map(fn($d) => $d['total'], $divisionStats));
-                        foreach ($divisionStats as $div):
-                            $width = $maxTasks > 0 ? ($div['total'] / $maxTasks) * 100 : 0;
+                        // Hapus Integrated dari array sebelum loop divisi biasa
+                        $divisionsForChart = $divisionStatusStats;
+                        if (isset($divisionsForChart['Integrated'])) {
+                            unset($divisionsForChart['Integrated']);
+                        }
                         ?>
+
+                        <!-- Per Division -->
+                        <?php foreach ($divisionsForChart as $div): ?>
                             <div class="bar-item">
                                 <div class="bar-label"><?= h($div['name']) ?></div>
                                 <div class="bar-container">
-                                    <div class="bar-fill <?= strtolower($div['name']) ?>" style="width: <?= $width ?>%">
-                                        <div class="bar-progress-text">On Progress (<?= $div['progress'] ?>)</div>
-                                    </div>
+                                    <?php
+                                    $total = $div['total'];
+                                    $cumulativeWidth = 0;
+
+                                    // Untuk Pabrikasi hanya show 3 status, untuk divisi lain show semua
+                                    $statusesToShow = $div['name'] === 'Pabrikasi' ? ['To Do', 'On Proses', 'Done'] : ($div['name'] === 'Logistik' ? ['To Do', 'Done'] : $statusList);
+
+                                    foreach ($statusesToShow as $status) {
+                                        $count = $div['statuses'][$status] ?? 0;
+                                        if ($count == 0) continue;
+
+                                        $widthPercent = $total > 0 ? ($count / $total) * 100 : 0;
+                                        $cumulativeWidth += $widthPercent;
+
+                                        $colorClass = '';
+                                        switch ($status) {
+                                            case 'To Do':
+                                                $colorClass = 'bg-gray';
+                                                break;
+                                            case 'On Proses':
+                                                $colorClass = 'bg-blue';
+                                                break;
+                                            case 'Hold':
+                                                $colorClass = 'bg-yellow';
+                                                break;
+                                            case 'Waiting Approve':
+                                                $colorClass = 'bg-purple';
+                                                break;
+                                            case 'Done':
+                                                $colorClass = 'bg-green';
+                                                break;
+                                            default:
+                                                $colorClass = 'bg-gray';
+                                        }
+                                    ?>
+                                        <div class="bar-fill <?= $colorClass ?>"
+                                            style="width: <?= $widthPercent ?>%; left: <?= $cumulativeWidth - $widthPercent ?>%"
+                                            title="<?= h($status) ?> (<?= $count ?>)">
+                                            <?php if ($widthPercent >= 15): ?>
+                                                <span class="bar-progress-text">
+                                                    <?= h($status) ?> (<?= $count ?>)
+                                                </span>
+                                            <?php endif; ?>
+                                        </div>
+                                    <?php } ?>
                                 </div>
                                 <div class="bar-value"><?= $div['total'] ?></div>
                             </div>
                         <?php endforeach; ?>
+
+                        <?php if (empty($divisionsForChart)): ?>
+                            <div style="text-align: center; color: var(--muted); font-size: 12px; padding: 20px;">
+                                Tidak ada data task atau items
+                            </div>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
@@ -499,16 +894,29 @@ foreach ($divisions as $div) {
                         <div class="detail-value"><?= h($ponRecord['type'] ?? '-') ?></div>
                     </div>
                     <div class="detail-item">
-                        <div class="detail-label">Berat</div>
-                        <div class="detail-value"><?= h(kg((float)($ponRecord['berat'] ?? 0) * (int)($ponRecord['qty'] ?? 1))) ?></div>
+                        <div class="detail-label">Total Items/Tasks</div>
+                        <div class="detail-value">
+                            <?= $integratedTotal ?>
+                            (<?= $totalTasks ?> tasks + <?= $totalFabrikasiItems ?> fabrikasi + <?= $logistikTotalItems ?> logistik)
+                        </div>
                     </div>
                     <div class="detail-item">
-                        <div class="detail-label">Progress</div>
-                        <div class="detail-value"><?= (int)($ponRecord['progress'] ?? 0) ?>%</div>
+                        <div class="detail-label">Progress Aktual</div>
+                        <div class="detail-value" style="color: #3b82f6; font-weight: 700;"><?= $overallProgress ?>%</div>
                     </div>
                     <div class="detail-item">
                         <div class="detail-label">Status</div>
-                        <div class="detail-value"><?= h(ucfirst($ponRecord['status'] ?? 'Progres')) ?></div>
+                        <div class="detail-value">
+                            <?php
+                            $statusColor = 'var(--text)';
+                            if ($overallProgress == 100) $statusColor = '#10b981';
+                            elseif ($overallProgress >= 70) $statusColor = '#3b82f6';
+                            elseif ($overallProgress >= 30) $statusColor = '#f59e0b';
+                            ?>
+                            <span style="color: <?= $statusColor ?>; font-weight: 600;">
+                                <?= h(ucfirst($ponRecord['status'] ?? 'Progres')) ?>
+                            </span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -526,33 +934,50 @@ foreach ($divisions as $div) {
                                         fill="transparent" stroke="#9ca3af" stroke-width="3"
                                         stroke-dasharray="<?= $div['todo_percent'] ?> <?= 100 - $div['todo_percent'] ?>"
                                         stroke-dashoffset="25"
-                                        data-tooltip="To Do (<?= $div['todo'] ?> tasks)"
+                                        data-tooltip="To Do (<?= $div['todo'] ?> <?= $div['name'] === 'Pabrikasi' ? 'items' : ($div['name'] === 'Logistik' ? 'items' : 'tasks') ?>)"
                                         onmouseover="showTooltip(event, this)" onmouseout="hideTooltip()"></circle>
                                     <!-- On Progress -->
-                                    <circle class="pie-slice" cx="21" cy="21" r="15.915"
-                                        fill="transparent" stroke="#06b6d4" stroke-width="3"
-                                        stroke-dasharray="<?= $div['progress_percent'] ?> <?= 100 - $div['progress_percent'] ?>"
-                                        stroke-dashoffset="<?= 25 - $div['todo_percent'] ?>"
-                                        data-tooltip="On Progress (<?= $div['progress'] ?> tasks)"
-                                        onmouseover="showTooltip(event, this)" onmouseout="hideTooltip()"></circle>
+                                    <?php if ($div['progress_percent'] > 0): ?>
+                                        <circle class="pie-slice" cx="21" cy="21" r="15.915"
+                                            fill="transparent" stroke="#06b6d4" stroke-width="3"
+                                            stroke-dasharray="<?= $div['progress_percent'] ?> <?= 100 - $div['progress_percent'] ?>"
+                                            stroke-dashoffset="<?= 25 - $div['todo_percent'] ?>"
+                                            data-tooltip="On Progress (<?= $div['progress'] ?> <?= $div['name'] === 'Pabrikasi' ? 'items' : ($div['name'] === 'Logistik' ? 'items' : 'tasks') ?>)"
+                                            onmouseover="showTooltip(event, this)" onmouseout="hideTooltip()"></circle>
+                                    <?php endif; ?>
                                     <!-- Done -->
                                     <circle class="pie-slice" cx="21" cy="21" r="15.915"
                                         fill="transparent" stroke="#10b981" stroke-width="3"
                                         stroke-dasharray="<?= $div['done_percent'] ?> <?= 100 - $div['done_percent'] ?>"
                                         stroke-dashoffset="<?= 25 - $div['todo_percent'] - $div['progress_percent'] ?>"
-                                        data-tooltip="Done (<?= $div['done'] ?> tasks)"
+                                        data-tooltip="Done (<?= $div['done'] ?> <?= $div['name'] === 'Pabrikasi' ? 'items' : ($div['name'] === 'Logistik' ? 'items' : 'tasks') ?>)"
                                         onmouseover="showTooltip(event, this)" onmouseout="hideTooltip()"></circle>
-                                    <!-- Center text -->
-                                    <text x="21" y="23" text-anchor="middle" fill="var(--text)" font-size="5" font-weight="600">
-                                        <?= $div['total'] ?> Tasks
+                                    <!-- Center text - SEDERHANA seperti divisi lain -->
+                                    <text x="21" y="21" text-anchor="middle" fill="var(--text)" font-size="5" font-weight="600">
+                                        <?= $div['total'] ?>
+                                    </text>
+                                    <text x="21" y="26" text-anchor="middle" fill="var(--muted)" font-size="3">
+                                        <?= $div['name'] === 'Pabrikasi' || $div['name'] === 'Logistik' ? 'Items' : 'Tasks' ?>
                                     </text>
                                 </svg>
                                 <div class="tooltip" id="tooltip-<?= strtolower($div['name']) ?>"></div>
                             </div>
-                            <div class="division-name"><?= h($div['name']) ?></div>
-                            <a href="task_detail.php?pon=<?= urlencode($ponCode) ?>&div=<?= urlencode($div['name']) ?>" class="view-task-btn">
-                                Lihat Task
-                            </a>
+                            <div class="division-name">
+                                <?= h($div['name']) ?>
+                            </div>
+                            <?php if ($div['name'] === 'Pabrikasi'): ?>
+                                <a href="fabrikasi_list.php?pon=<?= urlencode($ponCode) ?>" class="view-task-btn">
+                                    Lihat Data
+                                </a>
+                            <?php elseif ($div['name'] === 'Logistik'): ?>
+                                <a href="logistik_menu.php?pon=<?= urlencode($ponCode) ?>" class="view-task-btn">
+                                    Lihat Data Logistik
+                                </a>
+                            <?php else: ?>
+                                <a href="task_detail.php?pon=<?= urlencode($ponCode) ?>&div=<?= urlencode($div['name']) ?>" class="view-task-btn">
+                                    Lihat Task
+                                </a>
+                            <?php endif; ?>
                         </div>
                     <?php endforeach; ?>
                 </div>
@@ -580,9 +1005,11 @@ foreach ($divisions as $div) {
             setInterval(tick, 1000);
         })();
 
-        // Tooltip functionality
+        // Tooltip functionality - SEDERHANA
         function showTooltip(event, element) {
-            const tooltip = document.getElementById('tooltip') || document.getElementById('tooltip-' + element.closest('.division-card')?.querySelector('.division-name')?.textContent.toLowerCase()) || document.getElementById('tooltip');
+            const tooltip = document.getElementById('tooltip') ||
+                document.getElementById('tooltip-' + element.closest('.division-card')?.querySelector('.division-name')?.textContent.toLowerCase()) ||
+                document.getElementById('tooltip');
             if (!tooltip) return;
 
             const tooltipText = element.getAttribute('data-tooltip');

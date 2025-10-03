@@ -18,7 +18,6 @@ $nowEpoch = time();
 // Get parameters
 $ponCode = isset($_GET['pon']) ? trim($_GET['pon']) : '';
 $division = isset($_GET['div']) ? trim($_GET['div']) : '';
-$activeTab = isset($_GET['tab']) ? trim($_GET['tab']) : '';
 
 if (!$ponCode || !$division) {
     header('Location: tasklist.php');
@@ -32,96 +31,38 @@ if (!$ponRecord) {
     exit;
 }
 
-// Define task categories based on division
-$taskCategories = [
-    'Engineering' => [
-        'List Material' => 'List Material',
-        'Shop Drawing' => 'Shop Drawing',
-        'Erection' => 'Erection',
-        'Manual Book' => 'Manual Book',
-        'QC Dossier' => 'QC Dossier'
-    ],
-    'Logistik' => [
-        'Pengiriman Material' => 'Pengiriman Material',
-        'Koordinasi Transportasi' => 'Koordinasi Transportasi',
-        'Dokumen Pengiriman' => 'Dokumen Pengiriman',
-        'Tracking' => 'Tracking',
-        'Delivery' => 'Delivery'
-    ],
-    'Pabrikasi' => [
-        'Cutting' => 'Cutting',
-        'Welding' => 'Welding',
-        'Assembly' => 'Assembly',
-        'Painting' => 'Painting',
-        'QC Check' => 'QC Check'
-    ],
-    'Purchasing' => [
-        'RFQ' => 'RFQ',
-        'PO Processing' => 'PO Processing',
-        'Vendor Management' => 'Vendor Management',
-        'Material Receipt' => 'Material Receipt',
-        'Invoice' => 'Invoice'
-    ]
-];
-
-$categories = $taskCategories[$division] ?? [];
-$defaultTab = !empty($categories) ? array_keys($categories)[0] : '';
-if (!$activeTab) {
-    $activeTab = $defaultTab;
-}
-
-// Get tasks for selected category
-$tasksForCategory = [];
-if ($activeTab) {
-    $tasksForCategory = fetchAll(
-        'SELECT * FROM tasks WHERE pon = ? AND division = ? AND title = ? ORDER BY start_date ASC',
-        [$ponCode, $division, $activeTab]
-    );
-}
-
-// Handle task update
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    if ($_POST['action'] === 'update') {
-        $taskId = (int)($_POST['task_id'] ?? 0);
-        $progress = max(0, min(100, (int)($_POST['progress'] ?? 0)));
-        $status = trim($_POST['status'] ?? '');
-
-        $validStatuses = ['ToDo', 'On Proses', 'Hold', 'Done', 'Waiting Approve'];
-        if (in_array($status, $validStatuses)) {
-            try {
-                update(
-                    'tasks',
-                    ['progress' => $progress, 'status' => $status, 'updated_at' => date('Y-m-d H:i')],
-                    'id = :id',
-                    ['id' => $taskId]
-                );
-
-                // Update PON progress
-                if (function_exists('updatePonProgress')) {
-                    updatePonProgress($ponCode);
-                }
-            } catch (Exception $e) {
-                error_log('Task update error: ' . $e->getMessage());
-            }
-        }
-    } elseif ($_POST['action'] === 'delete') {
-        $taskId = (int)($_POST['task_id'] ?? 0);
-        try {
-            delete('tasks', 'id = :id', ['id' => $taskId]);
-
-            // Update PON progress
-            if (function_exists('updatePonProgress')) {
-                updatePonProgress($ponCode);
-            }
-        } catch (Exception $e) {
-            error_log('Task delete error: ' . $e->getMessage());
-        }
-    }
-
-    // Redirect to refresh page
-    header('Location: task_detail.php?pon=' . urlencode($ponCode) . '&div=' . urlencode($division) . '&tab=' . urlencode($activeTab));
+$validDivisions = ['Engineering', 'Logistik', 'Pabrikasi', 'Purchasing'];
+if (!in_array($division, $validDivisions)) {
+    header('Location: tasklist.php?error=invalid_division');
     exit;
 }
+
+// Get all tasks for this PON and division
+$tasks = fetchAll('SELECT * FROM tasks WHERE pon = ? AND division = ? ORDER BY created_at DESC', [$ponCode, $division]);
+
+// Handle task deletion
+if (isset($_GET['delete']) && isset($_GET['id'])) {
+    $taskId = (int)$_GET['id'];
+    delete('tasks', 'id = :id', ['id' => $taskId]);
+    header('Location: task_detail.php?pon=' . urlencode($ponCode) . '&div=' . urlencode($division) . '&deleted=1');
+    exit;
+}
+
+// Get success messages
+$successMsg = '';
+if (isset($_GET['added'])) {
+    $successMsg = 'Task berhasil ditambahkan!';
+} elseif (isset($_GET['updated'])) {
+    $successMsg = 'Task berhasil diupdate!';
+} elseif (isset($_GET['deleted'])) {
+    $successMsg = 'Task berhasil dihapus!';
+}
+
+// Calculate statistics
+$totalTasks = count($tasks);
+$todoTasks = count(array_filter($tasks, fn($t) => strtolower($t['status'] ?? '') === 'todo'));
+$onProgressTasks = count(array_filter($tasks, fn($t) => strtolower($t['status'] ?? '') === 'on proses'));
+$doneTasks = count(array_filter($tasks, fn($t) => strtolower($t['status'] ?? '') === 'done'));
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -129,175 +70,212 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title><?= h($division) ?> - Detail Task - <?= h($appName) ?></title>
-    <link rel="stylesheet"
-        href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
-    <link rel="stylesheet"
-        href="assets/css/app.css?v=<?= file_exists('assets/css/app.css') ? filemtime('assets/css/app.css') : time() ?>">
-    <link rel="stylesheet"
-        href="assets/css/sidebar.css?v=<?= file_exists('assets/css/sidebar.css') ? filemtime('assets/css/sidebar.css') : time() ?>">
-    <link rel="stylesheet"
-        href="assets/css/layout.css?v=<?= file_exists('assets/css/layout.css') ? filemtime('assets/css/layout.css') : time() ?>">
+    <title>Task List > <?= strtoupper(h($ponCode)) ?> > <?= h($division) ?> - <?= h($appName) ?></title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="assets/css/app.css?v=<?= filemtime('assets/css/app.css') ?>">
+    <link rel="stylesheet" href="assets/css/sidebar.css?v=<?= filemtime('assets/css/sidebar.css') ?>">
+    <link rel="stylesheet" href="assets/css/layout.css?v=<?= filemtime('assets/css/layout.css') ?>">
     <style>
-        /* Task Detail Page Styles */
+        /* Page Header */
         .page-header {
             background: var(--card-bg);
             border: 1px solid var(--border);
             border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 20px;
+            padding: 20px 24px;
+            margin-bottom: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .back-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 8px 12px;
+            border-radius: 6px;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+
+        .back-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
         }
 
         .page-title {
             font-size: 20px;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .add-task-btn {
+            background: #1d4ed8;
+            border: 1px solid #3b82f6;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .add-task-btn:hover {
+            background: #1e40af;
+        }
+
+        /* Statistics Cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        @media (max-width: 1024px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 640px) {
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .stat-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 28px;
             font-weight: 700;
             color: var(--text);
-            margin-bottom: 10px;
+            margin-bottom: 4px;
         }
 
-        .page-breadcrumb {
-            display: flex;
-            gap: 8px;
-            align-items: center;
+        .stat-label {
+            font-size: 12px;
             color: var(--muted);
-            font-size: 14px;
+            font-weight: 500;
         }
 
-        .page-breadcrumb a {
-            color: #93c5fd;
-            text-decoration: none;
+        /* Success Message */
+        .success-msg {
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: #86efac;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
-        .page-breadcrumb .sep {
-            opacity: 0.5;
-        }
-
-        .task-container {
+        /* Table Container */
+        .table-section {
             background: var(--card-bg);
             border: 1px solid var(--border);
             border-radius: 12px;
             overflow: hidden;
         }
 
-        .task-header {
+        .section-header-bar {
+            background: #2d3748;
+            padding: 16px 24px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 20px;
             border-bottom: 1px solid var(--border);
         }
 
-        .task-title {
+        .section-title {
             font-size: 16px;
             font-weight: 600;
             color: var(--text);
         }
 
-        .add-task-btn {
-            background: #059669;
-            border: 1px solid #10b981;
-            color: #fff;
-            text-decoration: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            font-size: 13px;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            transition: all 0.2s;
-        }
-
-        .add-task-btn:hover {
-            background: #047857;
-        }
-
-        /* Tab Navigation */
-        .tab-nav {
-            display: flex;
-            background: rgba(255, 255, 255, 0.02);
-            border-bottom: 1px solid var(--border);
-            overflow-x: auto;
-        }
-
-        .tab-nav::-webkit-scrollbar {
-            height: 3px;
-        }
-
-        .tab-nav::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.1);
-        }
-
-        .tab-nav::-webkit-scrollbar-thumb {
-            background: rgba(147, 197, 253, 0.5);
-            border-radius: 2px;
-        }
-
-        .tab-item {
-            display: inline-block;
-            padding: 15px 20px;
-            color: var(--muted);
-            text-decoration: none;
-            font-size: 13px;
-            font-weight: 500;
-            white-space: nowrap;
-            border-bottom: 2px solid transparent;
-            transition: all 0.2s;
-        }
-
-        .tab-item:hover {
-            color: var(--text);
-            background: rgba(255, 255, 255, 0.05);
-        }
-
-        .tab-item.active {
-            color: #93c5fd;
-            border-bottom-color: #3b82f6;
-            background: rgba(59, 130, 246, 0.1);
-        }
-
-        /* Task Table */
-        .task-content {
-            padding: 20px;
-            min-height: 300px;
-        }
-
-        .tasks-table {
+        /* Task table styles */
+        .task-table {
             width: 100%;
             border-collapse: collapse;
         }
 
-        .tasks-table th,
-        .tasks-table td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid var(--border);
-            font-size: 13px;
+        .task-table thead {
+            background: #374151;
         }
 
-        .tasks-table th {
-            background: rgba(255, 255, 255, 0.05);
+        .task-table th {
+            padding: 12px 16px;
+            text-align: left;
             color: var(--muted);
             font-weight: 600;
             font-size: 12px;
-            text-transform: uppercase;
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
         }
 
-        .tasks-table td {
+        .task-table td {
+            padding: 12px 16px;
             color: var(--text);
+            font-size: 13px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: middle;
         }
 
+        .task-table tbody tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        /* Progress Bar */
+        .progress-bar-container {
+            width: 100%;
+            max-width: 100px;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3b82f6, #06b6d4);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        /* Status Badge */
         .status-badge {
-            padding: 4px 8px;
+            padding: 4px 10px;
             border-radius: 4px;
             font-size: 11px;
             font-weight: 600;
             text-transform: uppercase;
+            white-space: nowrap;
         }
 
-        .status-todo {
-            background: rgba(156, 163, 175, 0.2);
-            color: #d1d5db;
+        .status-done {
+            background: rgba(34, 197, 94, 0.2);
+            color: #86efac;
         }
 
         .status-on-proses {
@@ -306,131 +284,74 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
 
         .status-hold {
-            background: rgba(245, 101, 101, 0.2);
-            color: #f87171;
+            background: rgba(245, 158, 11, 0.2);
+            color: #fcd34d;
         }
 
-        .status-done {
-            background: rgba(34, 197, 94, 0.2);
-            color: #86efac;
+        .status-todo {
+            background: rgba(156, 163, 175, 0.2);
+            color: #d1d5db;
         }
 
         .status-waiting-approve {
-            background: rgba(245, 158, 11, 0.2);
-            color: #fbbf24;
+            background: rgba(168, 85, 247, 0.2);
+            color: #c4b5fd;
         }
 
-        .progress-container {
-            width: 80px;
-            height: 6px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 3px;
-            overflow: hidden;
-        }
-
-        .progress-bar {
-            height: 100%;
-            background: linear-gradient(90deg, #3b82f6, #06b6d4);
-            border-radius: 3px;
-            transition: width 0.3s ease;
-        }
-
-        .inline-form {
+        /* Action Buttons */
+        .action-btns {
             display: flex;
-            gap: 6px;
-            align-items: center;
+            gap: 8px;
         }
 
-        .input-sm,
-        .select-sm {
+        .btn-icon {
             background: rgba(255, 255, 255, 0.05);
             border: 1px solid var(--border);
             color: var(--text);
-            padding: 4px 6px;
-            border-radius: 4px;
-            font-size: 11px;
-        }
-
-        .input-num {
-            width: 60px;
-        }
-
-        .back-btn {
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid var(--border);
-            color: var(--text);
-            text-decoration: none;
-            padding: 8px 16px;
+            width: 32px;
+            height: 32px;
             border-radius: 6px;
-            font-size: 13px;
             display: flex;
             align-items: center;
-            gap: 6px;
-            transition: all 0.2s;
-        }
-
-        .back-btn:hover {
-            background: rgba(255, 255, 255, 0.15);
-        }
-
-        .btn-sm {
-            background: #3b82f6;
-            border: 1px solid #3b82f6;
-            color: #fff;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 11px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            border: none;
-        }
-
-        .btn-sm:hover {
-            background: #2563eb;
-        }
-
-        .action-buttons {
-            display: flex;
-            gap: 4px;
-        }
-
-        .btn-edit {
-            background: #3b82f6;
-            border: 1px solid #3b82f6;
-            color: #fff;
-            padding: 3px 6px;
-            border-radius: 3px;
-            font-size: 10px;
+            justify-content: center;
             text-decoration: none;
             transition: all 0.2s;
-        }
-
-        .btn-edit:hover {
-            background: #2563eb;
-        }
-
-        .btn-delete {
-            background: #dc2626;
-            border: 1px solid #dc2626;
-            color: #fff;
-            padding: 3px 6px;
-            border-radius: 3px;
-            font-size: 10px;
             cursor: pointer;
-            transition: all 0.2s;
-            border: none;
         }
 
-        .btn-delete:hover {
-            background: #b91c1c;
+        .btn-icon:hover {
+            background: rgba(255, 255, 255, 0.1);
         }
 
+        .btn-icon.edit:hover {
+            border-color: #3b82f6;
+            color: #93c5fd;
+        }
+
+        .btn-icon.delete:hover {
+            border-color: #ef4444;
+            color: #fca5a5;
+        }
+
+        /* File Link */
+        .file-link {
+            color: #93c5fd;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 12px;
+        }
+
+        .file-link:hover {
+            text-decoration: underline;
+        }
+
+        /* Empty State */
         .empty-state {
             text-align: center;
-            color: var(--muted);
             padding: 60px 20px;
-            font-size: 14px;
+            color: var(--muted);
         }
 
         .empty-state i {
@@ -439,14 +360,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             opacity: 0.5;
         }
 
-        .file-link {
-            color: #93c5fd;
-            text-decoration: none;
-            font-size: 11px;
+        .empty-state p {
+            margin-bottom: 20px;
         }
 
-        .file-link:hover {
-            text-decoration: underline;
+        /* Custom Scrollbar */
+        .table-container {
+            overflow-x: auto;
+        }
+
+        .table-container::-webkit-scrollbar {
+            height: 8px;
+        }
+
+        .table-container::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+        }
+
+        .table-container::-webkit-scrollbar-thumb {
+            background: rgba(147, 197, 253, 0.3);
+            border-radius: 4px;
+        }
+
+        .table-container::-webkit-scrollbar-thumb:hover {
+            background: rgba(147, 197, 253, 0.5);
         }
     </style>
 </head>
@@ -467,7 +405,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         </aside>
 
         <header class="header">
-            <div class="title"><?= h($division) ?> - Detail Task</div>
+            <div class="title">Task List > <?= strtoupper(h($ponCode)) ?> > <?= h($division) ?></div>
             <div class="meta">
                 <div>Server: <?= h($server) ?></div>
                 <div>PHP <?= PHP_VERSION ?></div>
@@ -478,167 +416,359 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         <main class="content">
             <!-- Page Header -->
             <div class="page-header">
-                <div class="page-title"><?= h($division) ?> - Detail Task</div>
-                <div class="page-breadcrumb">
-                    <a href="tasklist.php">Task List</a>
-                    <span class="sep">›</span>
-                    <a href="task_divisions.php?pon=<?= urlencode($ponCode) ?>"><?= strtoupper(h($ponCode)) ?></a>
-                    <span class="sep">›</span>
-                    <strong><?= h($division) ?></strong>
+                <div class="header-left">
+                    <a href="task_divisions.php?pon=<?= urlencode($ponCode) ?>" class="back-btn">
+                        <i class="bi bi-arrow-left"></i>
+                        Kembali
+                    </a>
+                    <div class="page-title"><?= h($division) ?> - Detail Task</div>
+                </div>
+                <a href="task_new.php?pon=<?= urlencode($ponCode) ?>&div=<?= urlencode($division) ?>" class="add-task-btn">
+                    <i class="bi bi-plus-lg"></i>
+                    Tambah Task
+                </a>
+            </div>
+
+            <?php if ($division === 'Pabrikasi'): ?>
+                <!-- Redirect to Fabrikasi List -->
+                <script>
+                    window.location.href = 'fabrikasi_list.php?pon=<?= urlencode($ponCode) ?>';
+                </script>
+            <?php elseif ($division === 'Logistik'): ?>
+                <!-- Redirect to Logistik List -->
+                <script>
+                    window.location.href = 'logistik_menu.php?pon=<?= urlencode($ponCode) ?>';
+                </script>
+            <?php elseif ($successMsg): ?>
+                <div class="success-msg">
+                    <i class="bi bi-check-circle"></i>
+                    <?= h($successMsg) ?>
+                </div>
+            <?php endif; ?>
+
+            <!-- Statistics -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value"><?= $totalTasks ?></div>
+                    <div class="stat-label">Total Task</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value"><?= $todoTasks ?></div>
+                    <div class="stat-label">To Do</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value"><?= $onProgressTasks ?></div>
+                    <div class="stat-label">On Progress</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value"><?= $doneTasks ?></div>
+                    <div class="stat-label">Done</div>
                 </div>
             </div>
 
-            <!-- Task Container -->
-            <div class="task-container">
-                <!-- Header with Add Button -->
-                <div class="task-header">
-                    <div>
-                        <div class="task-title"><?= h($division) ?> > <?= h($activeTab ?: 'Pilih Kategori') ?></div>
-                    </div>
-                    <?php if ($activeTab): ?>
-                        <div style="display: flex; gap: 8px;">
-                            <a href="task_divisions.php?pon=<?= urlencode($ponCode) ?>" class="back-btn">
-                                <i class="bi bi-arrow-left"></i>
-                                Kembali
-                            </a>
-                            <a href="task_new.php?pon=<?= urlencode($ponCode) ?>&div=<?= urlencode($division) ?>" class="add-task-btn">
-                                <i class="bi bi-plus"></i>
-                                Tambah Task
-                            </a>
-                        </div>
-                    <?php endif; ?>
+            <!-- Task Table -->
+            <div class="table-section">
+                <div class="section-header-bar">
+                    <div class="section-title"><?= h($division) ?> - Detail Task</div>
+                    <a href="task_new.php?pon=<?= urlencode($ponCode) ?>&div=<?= urlencode($division) ?>" class="add-task-btn" style="padding: 8px 16px; font-size: 13px;">
+                        <i class="bi bi-plus-lg"></i>
+                        Tambah Task
+                    </a>
                 </div>
 
-                <!-- Tab Navigation -->
-                <div class="tab-nav">
-                    <?php foreach ($categories as $key => $label): ?>
-                        <a href="?pon=<?= urlencode($ponCode) ?>&div=<?= urlencode($division) ?>&tab=<?= urlencode($key) ?>"
-                            class="tab-item <?= $activeTab === $key ? 'active' : '' ?>">
-                            <?= h($label) ?>
+                <?php if (empty($tasks)): ?>
+                    <div class="empty-state">
+                        <i class="bi bi-inbox"></i>
+                        <p>Belum ada task untuk divisi <?= h($division) ?></p>
+                        <a href="task_new.php?pon=<?= urlencode($ponCode) ?>&div=<?= urlencode($division) ?>" class="add-task-btn" style="display: inline-flex;">
+                            <i class="bi bi-plus-lg"></i>
+                            Tambah Task Pertama
                         </a>
-                    <?php endforeach; ?>
-                </div>
+                    </div>
+                <?php else: ?>
+                    <div class="table-container">
 
-                <!-- Task Content -->
-                <div class="task-content">
-                    <?php if (!$activeTab): ?>
-                        <div class="empty-state">
-                            <i class="bi bi-list-task"></i>
-                            <div>Pilih kategori task dari tab di atas</div>
-                        </div>
-                    <?php elseif (empty($tasksForCategory)): ?>
-                        <div class="empty-state">
-                            <i class="bi bi-list-task"></i>
-                            <div>Belum ada task untuk kategori <?= h($activeTab) ?></div>
-                            <div style="margin-top: 16px;">
-                                <a href="task_new.php?pon=<?= urlencode($ponCode) ?>&div=<?= urlencode($division) ?>" class="add-task-btn">
-                                    <i class="bi bi-plus"></i>
-                                    Tambah Task Pertama
-                                </a>
-                            </div>
-                        </div>
-                    <?php else: ?>
-                        <table class="tasks-table">
-                            <thead>
-                                <tr>
-                                    <th>Start</th>
-                                    <th>Finish</th>
-                                    <th>Progress</th>
-                                    <th>Status</th>
-                                    <th>PIC</th>
-                                    <th>Files</th>
-                                    <th>Keterangan</th>
-                                    <th>Aksi</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($tasksForCategory as $task):
-                                    $progress = (int)($task['progress'] ?? 0);
-                                    $status = strtolower(str_replace(' ', '-', $task['status'] ?? 'todo'));
-                                    $statusClass = 'status-' . $status;
-                                ?>
+                        <?php if ($division === 'Engineering'): ?>
+                            <!-- Engineering Table - Format seperti Fabrikasi -->
+                            <table class="task-table">
+                                <thead>
                                     <tr>
-                                        <td><?= h(dmy($task['start_date'] ?? null)) ?></td>
-                                        <td><?= h(dmy($task['due_date'] ?? null)) ?></td>
-                                        <td>
-                                            <div style="display: flex; align-items: center; gap: 8px;">
-                                                <div class="progress-container">
-                                                    <div class="progress-bar" style="width: <?= $progress ?>%"></div>
-                                                </div>
-                                                <span style="font-size: 11px; color: var(--muted);"><?= $progress ?>%</span>
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <span class="status-badge <?= $statusClass ?>">
-                                                <?= h($task['status'] ?? 'ToDo') ?>
-                                            </span>
-                                        </td>
-                                        <td><?= h($task['pic'] ?? '-') ?></td>
-                                        <td>
-                                            <?php if (!empty($task['files'])): ?>
-                                                <a href="<?= h($task['files']) ?>" class="file-link" target="_blank">
-                                                    <i class="bi bi-file-earmark"></i> File
-                                                </a>
-                                            <?php elseif (!empty($task['foto'])): ?>
-                                                <a href="<?= h($task['foto']) ?>" class="file-link" target="_blank">
-                                                    <i class="bi bi-image"></i> Foto
-                                                </a>
-                                            <?php else: ?>
-                                                <span style="color: var(--muted); font-size: 11px;">-</span>
-                                            <?php endif; ?>
-                                        </td>
-                                        <td>
-                                            <?php if (!empty($task['keterangan'])): ?>
-                                                <span title="<?= h($task['keterangan']) ?>" style="font-size: 11px;">
-                                                    <?= h(substr($task['keterangan'], 0, 30)) ?><?= strlen($task['keterangan']) > 30 ? '...' : '' ?>
-                                                </span>
-                                            <?php else: ?>
-                                                <span style="color: var(--muted); font-size: 11px;">-</span>
-                                            <?php endif; ?>
-                                        </td>
-                                        <td>
-                                            <div style="display: flex; flex-direction: column; gap: 4px;">
-                                                <!-- Update Form -->
-                                                <form method="post" class="inline-form">
-                                                    <input type="hidden" name="action" value="update">
-                                                    <input type="hidden" name="task_id" value="<?= $task['id'] ?>">
-                                                    <input class="input-sm input-num" name="progress" type="number" min="0" max="100" value="<?= $progress ?>">
-                                                    <select class="select-sm" name="status">
-                                                        <?php foreach (['ToDo', 'On Proses', 'Hold', 'Done', 'Waiting Approve'] as $st): ?>
-                                                            <option value="<?= h($st) ?>" <?= ($task['status'] ?? '') === $st ? 'selected' : '' ?>>
-                                                                <?= h($st) ?>
-                                                            </option>
-                                                        <?php endforeach; ?>
-                                                    </select>
-                                                    <button class="btn-sm" type="submit">Simpan</button>
-                                                </form>
-
-                                                <!-- Action Buttons -->
-                                                <div class="action-buttons">
-                                                    <a href="task_edit.php?id=<?= $task['id'] ?>&pon=<?= urlencode($ponCode) ?>&div=<?= urlencode($division) ?>"
-                                                        class="btn-edit" title="Edit Task">
-                                                        <i class="bi bi-pencil"></i> Edit
-                                                    </a>
-                                                    <form method="post" style="display: inline;" onsubmit="return confirm('Yakin ingin menghapus task ini?')">
-                                                        <input type="hidden" name="action" value="delete">
-                                                        <input type="hidden" name="task_id" value="<?= $task['id'] ?>">
-                                                        <button class="btn-delete" type="submit" title="Hapus Task">
-                                                            <i class="bi bi-trash"></i> Hapus
-                                                        </button>
-                                                    </form>
-                                                </div>
-                                            </div>
-                                        </td>
+                                        <th>Engineering Task</th>
+                                        <th>Start</th>
+                                        <th>Finish</th>
+                                        <th>Progress</th>
+                                        <th>Status</th>
+                                        <th>PIC</th>
+                                        <th>Files</th>
+                                        <th>Keterangan</th>
+                                        <th>Aksi</th>
                                     </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    <?php endif; ?>
-                </div>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($tasks as $task): ?>
+                                        <tr>
+                                            <td><?= h($task['title'] ?? '-') ?></td>
+                                            <td><?= h(dmy($task['start_date'] ?? null)) ?></td>
+                                            <td><?= h(dmy($task['due_date'] ?? null)) ?></td>
+                                            <td>
+                                                <div style="display: flex; align-items: center; gap: 8px;">
+                                                    <div class="progress-bar-container">
+                                                        <div class="progress-bar-fill" style="width: <?= (int)($task['progress'] ?? 0) ?>%"></div>
+                                                    </div>
+                                                    <span style="font-size: 11px; color: var(--muted);"><?= (int)($task['progress'] ?? 0) ?>%</span>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <?php
+                                                $status = strtolower($task['status'] ?? 'todo');
+                                                $statusClass = 'status-' . str_replace(' ', '-', $status);
+                                                ?>
+                                                <span class="status-badge <?= $statusClass ?>"><?= h(ucfirst($task['status'] ?? 'ToDo')) ?></span>
+                                            </td>
+                                            <td><?= h($task['pic'] ?? '-') ?></td>
+                                            <td>
+                                                <?php if (!empty($task['files'])): ?>
+                                                    <a href="<?= h($task['files']) ?>" target="_blank" class="file-link">
+                                                        <i class="bi bi-file-earmark"></i>
+                                                        Lihat File
+                                                    </a>
+                                                <?php else: ?>
+                                                    <span style="color: var(--muted); font-size: 12px;">-</span>
+                                                <?php endif; ?>
+                                            </td>
+                                            <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                                <?= h($task['keterangan'] ?? '-') ?>
+                                            </td>
+                                            <td>
+                                                <div class="action-btns">
+                                                    <a href="task_edit.php?id=<?= $task['id'] ?>&pon=<?= urlencode($ponCode) ?>&div=<?= urlencode($division) ?>" class="btn-icon edit" title="Edit">
+                                                        <i class="bi bi-pencil"></i>
+                                                    </a>
+                                                    <a href="task_detail.php?pon=<?= urlencode($ponCode) ?>&div=<?= urlencode($division) ?>&delete=1&id=<?= $task['id'] ?>"
+                                                        class="btn-icon delete"
+                                                        title="Hapus"
+                                                        onclick="return confirm('Yakin ingin menghapus task ini?')">
+                                                        <i class="bi bi-trash"></i>
+                                                    </a>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+
+                        <?php elseif ($division === 'Purchasing'): ?>
+                            <!-- Purchasing Table - Format seperti Fabrikasi -->
+                            <table class="task-table">
+                                <thead>
+                                    <tr>
+                                        <th>Purchase Type</th>
+                                        <th>Vendor</th>
+                                        <th>No. PO</th>
+                                        <th>Date PO</th>
+                                        <th>Start</th>
+                                        <th>Finish</th>
+                                        <th>Status</th>
+                                        <th>Qty</th>
+                                        <th>Satuan</th>
+                                        <th>Files</th>
+                                        <th>Keterangan</th>
+                                        <th>Aksi</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($tasks as $task): ?>
+                                        <tr>
+                                            <td><?= h($task['title'] ?? '-') ?></td>
+                                            <td><?= h($task['vendor'] ?? '-') ?></td>
+                                            <td><?= h($task['no_po'] ?? '-') ?></td>
+                                            <td><?= h(dmy($task['start_date'] ?? $task['created_at'] ?? '')) ?></td>
+                                            <td><?= h(dmy($task['start_date'] ?? null)) ?></td>
+                                            <td><?= h(dmy($task['due_date'] ?? null)) ?></td>
+                                            <td>
+                                                <?php
+                                                $status = strtolower($task['status'] ?? 'todo');
+                                                $statusClass = 'status-' . str_replace(' ', '-', $status);
+                                                ?>
+                                                <span class="status-badge <?= $statusClass ?>"><?= h(ucfirst($task['status'] ?? 'ToDo')) ?></span>
+                                            </td>
+                                            <td><?= h($task['qty'] ?? '-') ?></td>
+                                            <td><?= h($task['satuan'] ?? '-') ?></td>
+                                            <td>
+                                                <?php if (!empty($task['files'])): ?>
+                                                    <a href="<?= h($task['files']) ?>" target="_blank" class="file-link">
+                                                        <i class="bi bi-file-earmark"></i>
+                                                        Lihat File
+                                                    </a>
+                                                <?php else: ?>
+                                                    <span style="color: var(--muted); font-size: 12px;">-</span>
+                                                <?php endif; ?>
+                                            </td>
+                                            <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                                <?= h($task['keterangan'] ?? '-') ?>
+                                            </td>
+                                            <td>
+                                                <div class="action-btns">
+                                                    <a href="task_edit.php?id=<?= $task['id'] ?>&pon=<?= urlencode($ponCode) ?>&div=<?= urlencode($division) ?>" class="btn-icon edit" title="Edit">
+                                                        <i class="bi bi-pencil"></i>
+                                                    </a>
+                                                    <a href="task_detail.php?pon=<?= urlencode($ponCode) ?>&div=<?= urlencode($division) ?>&delete=1&id=<?= $task['id'] ?>"
+                                                        class="btn-icon delete"
+                                                        title="Hapus"
+                                                        onclick="return confirm('Yakin ingin menghapus task ini?')">
+                                                        <i class="bi bi-trash"></i>
+                                                    </a>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+
+                        <?php elseif ($division === 'Logistik'): ?>
+                            <!-- Logistik Table -->
+                            <table class="task-table">
+                                <thead>
+                                    <tr>
+                                        <th>Task</th>
+                                        <th>Start</th>
+                                        <th>Finish</th>
+                                        <th>Progress</th>
+                                        <th>Status</th>
+                                        <th>PIC</th>
+                                        <th>Files</th>
+                                        <th>Keterangan</th>
+                                        <th>Aksi</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($tasks as $task): ?>
+                                        <tr>
+                                            <td><?= h($task['title'] ?? '-') ?></td>
+                                            <td><?= h(dmy($task['start_date'] ?? null)) ?></td>
+                                            <td><?= h(dmy($task['due_date'] ?? null)) ?></td>
+                                            <td>
+                                                <div style="display: flex; align-items: center; gap: 8px;">
+                                                    <div class="progress-bar-container">
+                                                        <div class="progress-bar-fill" style="width: <?= (int)($task['progress'] ?? 0) ?>%"></div>
+                                                    </div>
+                                                    <span style="font-size: 11px; color: var(--muted);"><?= (int)($task['progress'] ?? 0) ?>%</span>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <?php
+                                                $status = strtolower($task['status'] ?? 'todo');
+                                                $statusClass = 'status-' . str_replace(' ', '-', $status);
+                                                ?>
+                                                <span class="status-badge <?= $statusClass ?>"><?= h(ucfirst($task['status'] ?? 'ToDo')) ?></span>
+                                            </td>
+                                            <td><?= h($task['pic'] ?? '-') ?></td>
+                                            <td>
+                                                <?php if (!empty($task['files'])): ?>
+                                                    <a href="<?= h($task['files']) ?>" target="_blank" class="file-link">
+                                                        <i class="bi bi-file-earmark"></i>
+                                                        Lihat File
+                                                    </a>
+                                                <?php else: ?>
+                                                    <span style="color: var(--muted); font-size: 12px;">-</span>
+                                                <?php endif; ?>
+                                            </td>
+                                            <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                                <?= h($task['keterangan'] ?? '-') ?>
+                                            </td>
+                                            <td>
+                                                <div class="action-btns">
+                                                    <a href="task_edit.php?id=<?= $task['id'] ?>&pon=<?= urlencode($ponCode) ?>&div=<?= urlencode($division) ?>" class="btn-icon edit" title="Edit">
+                                                        <i class="bi bi-pencil"></i>
+                                                    </a>
+                                                    <a href="task_detail.php?pon=<?= urlencode($ponCode) ?>&div=<?= urlencode($division) ?>&delete=1&id=<?= $task['id'] ?>"
+                                                        class="btn-icon delete"
+                                                        title="Hapus"
+                                                        onclick="return confirm('Yakin ingin menghapus task ini?')">
+                                                        <i class="bi bi-trash"></i>
+                                                    </a>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+
+                        <?php elseif ($division === 'Pabrikasi'): ?>
+                            <!-- Pabrikasi Table -->
+                            <table class="task-table">
+                                <thead>
+                                    <tr>
+                                        <th>Task</th>
+                                        <th>Start</th>
+                                        <th>Finish</th>
+                                        <th>Progress</th>
+                                        <th>Status</th>
+                                        <th>PIC</th>
+                                        <th>Foto</th>
+                                        <th>Keterangan</th>
+                                        <th>Aksi</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($tasks as $task): ?>
+                                        <tr>
+                                            <td><?= h($task['title'] ?? '-') ?></td>
+                                            <td><?= h(dmy($task['start_date'] ?? null)) ?></td>
+                                            <td><?= h(dmy($task['due_date'] ?? null)) ?></td>
+                                            <td>
+                                                <div style="display: flex; align-items: center; gap: 8px;">
+                                                    <div class="progress-bar-container">
+                                                        <div class="progress-bar-fill" style="width: <?= (int)($task['progress'] ?? 0) ?>%"></div>
+                                                    </div>
+                                                    <span style="font-size: 11px; color: var(--muted);"><?= (int)($task['progress'] ?? 0) ?>%</span>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <?php
+                                                $status = strtolower($task['status'] ?? 'todo');
+                                                $statusClass = 'status-' . str_replace(' ', '-', $status);
+                                                ?>
+                                                <span class="status-badge <?= $statusClass ?>"><?= h(ucfirst($task['status'] ?? 'ToDo')) ?></span>
+                                            </td>
+                                            <td><?= h($task['pic'] ?? '-') ?></td>
+                                            <td>
+                                                <?php if (!empty($task['foto'])): ?>
+                                                    <a href="<?= h($task['foto']) ?>" target="_blank" class="file-link">
+                                                        <i class="bi bi-image"></i>
+                                                        Lihat Foto
+                                                    </a>
+                                                <?php else: ?>
+                                                    <span style="color: var(--muted); font-size: 12px;">-</span>
+                                                <?php endif; ?>
+                                            </td>
+                                            <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                                <?= h($task['keterangan'] ?? '-') ?>
+                                            </td>
+                                            <td>
+                                                <div class="action-btns">
+                                                    <a href="task_edit.php?id=<?= $task['id'] ?>&pon=<?= urlencode($ponCode) ?>&div=<?= urlencode($division) ?>" class="btn-icon edit" title="Edit">
+                                                        <i class="bi bi-pencil"></i>
+                                                    </a>
+                                                    <a href="task_detail.php?pon=<?= urlencode($ponCode) ?>&div=<?= urlencode($division) ?>&delete=1&id=<?= $task['id'] ?>"
+                                                        class="btn-icon delete"
+                                                        title="Hapus"
+                                                        onclick="return confirm('Yakin ingin menghapus task ini?')">
+                                                        <i class="bi bi-trash"></i>
+                                                    </a>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        <?php endif; ?>
+                    </div>
+                <?php endif; ?>
             </div>
         </main>
 
-        <footer class="footer">© <?= date('Y') ?> <?= h($appName) ?> • Task Detail</footer>
+        <footer class="footer">© <?= date('Y') ?> <?= h($appName) ?> • Dibangun cepat dengan PHP</footer>
     </div>
 
     <script>

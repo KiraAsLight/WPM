@@ -1,0 +1,712 @@
+<?php
+
+declare(strict_types=1);
+
+session_start();
+if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
+    header('Location: index.php');
+    exit;
+}
+
+require_once 'config.php';
+
+$appName = APP_NAME;
+$activeMenu = 'Task List';
+$server = $_SERVER['SERVER_SOFTWARE'] ?? 'Apache';
+$nowEpoch = time();
+
+$itemId = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+$ponCode = isset($_GET['pon']) ? trim($_GET['pon']) : '';
+
+if (!$itemId || !$ponCode) {
+    header('Location: tasklist.php');
+    exit;
+}
+
+// Get item data
+$item = fetchOne('
+    SELECT lw.*, v.name as vendor_name 
+    FROM logistik_workshop lw 
+    LEFT JOIN vendors v ON lw.vendor_id = v.id 
+    WHERE lw.id = ? AND lw.pon = ?
+', [$itemId, $ponCode]);
+if (!$item) {
+    header('Location: logistik_workshop.php?pon=' . urlencode($ponCode) . '&error=not_found');
+    exit;
+}
+
+// Check if item already exists in site table
+$existingSiteItem = fetchOne('SELECT id FROM logistik_site WHERE pon = ? AND no = ?', [$ponCode, $item['no']]);
+
+$errors = [];
+$old = [
+    'no' => $item['no'],
+    'nama_parts' => $item['nama_parts'],
+    'marking' => $item['marking'],
+    'qty' => $item['qty'],
+    'dimensions' => $item['dimensions'],
+    'length_mm' => $item['length_mm'],
+    'unit_weight_kg' => $item['unit_weight_kg'],
+    'total_weight_kg' => $item['total_weight_kg'],
+    'vendor_id' => $item['vendor_id'],
+    'surat_jalan_tanggal' => $item['surat_jalan_tanggal'],
+    'surat_jalan_nomor' => $item['surat_jalan_nomor'],
+    'ready_cgi' => $item['ready_cgi'] ?? 0,
+    'os_dhj' => $item['os_dhj'] ?? 0,
+    'remarks' => $item['remarks'],
+    'progress' => $item['progress'] ?? 0,
+    'status' => $item['status'] ?? 'Belum Terkirim'
+];
+
+// Handle form submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $oldStatus = $item['status']; // Simpan status lama untuk comparison
+    $old['no'] = (int)($_POST['no'] ?? 0);
+    $old['nama_parts'] = trim($_POST['nama_parts'] ?? '');
+    $old['marking'] = trim($_POST['marking'] ?? '');
+    $old['qty'] = (int)($_POST['qty'] ?? 0);
+    $old['dimensions'] = trim($_POST['dimensions'] ?? '');
+    $old['length_mm'] = (float)($_POST['length_mm'] ?? 0);
+    $old['unit_weight_kg'] = (float)($_POST['unit_weight_kg'] ?? 0);
+    $old['total_weight_kg'] = (float)($_POST['total_weight_kg'] ?? 0);
+    $old['vendor_id'] = (int)($_POST['vendor_id'] ?? 0);
+    $old['surat_jalan_tanggal'] = $_POST['surat_jalan_tanggal'] ?? '';
+    $old['surat_jalan_nomor'] = trim($_POST['surat_jalan_nomor'] ?? '');
+    $old['ready_cgi'] = (int)($_POST['ready_cgi'] ?? 0);
+    $old['remarks'] = trim($_POST['remarks'] ?? '');
+    $old['status'] = $_POST['status'] ?? 'Belum Terkirim';
+
+    // ✅ LOGIC: O/S DHJ = QTY - Ready CGI
+    $old['os_dhj'] = $old['qty'] - $old['ready_cgi'];
+
+    // ✅ LOGIC: Progress = Ready CGI / QTY * 100%
+    if ($old['qty'] > 0) {
+        $old['progress'] = (int)round(($old['ready_cgi'] / $old['qty']) * 100);
+    } else {
+        $old['progress'] = 0;
+    }
+
+    // ✅ Auto-set progress based on status
+    if ($old['status'] === 'Terkirim') {
+        $old['progress'] = 100;
+        $old['ready_cgi'] = $old['qty'];
+        $old['os_dhj'] = 0;
+    }
+
+    // Validation
+    if ($old['no'] <= 0) {
+        $errors['no'] = 'No harus lebih dari 0';
+    }
+    if ($old['nama_parts'] === '') {
+        $errors['nama_parts'] = 'Nama Parts wajib diisi';
+    }
+    if ($old['qty'] < 0) {
+        $errors['qty'] = 'Quantity tidak boleh negatif';
+    }
+    if ($old['ready_cgi'] < 0) {
+        $errors['ready_cgi'] = 'Ready CGI tidak boleh negatif';
+    }
+    if ($old['ready_cgi'] > $old['qty']) {
+        $errors['ready_cgi'] = 'Ready CGI tidak boleh lebih besar dari QTY';
+    }
+
+    // Check if no already exists (excluding current item)
+    $existing = fetchOne(
+        'SELECT id FROM logistik_workshop WHERE pon = ? AND no = ? AND id != ?',
+        [$ponCode, $old['no'], $itemId]
+    );
+    if ($existing) {
+        $errors['no'] = 'No sudah ada untuk PON ini';
+    }
+
+    if (empty($errors)) {
+        try {
+            // Update workshop data
+            $data = [
+                'no' => $old['no'],
+                'nama_parts' => $old['nama_parts'],
+                'marking' => $old['marking'],
+                'qty' => $old['qty'],
+                'dimensions' => $old['dimensions'],
+                'length_mm' => $old['length_mm'],
+                'unit_weight_kg' => $old['unit_weight_kg'],
+                'total_weight_kg' => $old['total_weight_kg'],
+                'vendor_id' => $old['vendor_id'],
+                'surat_jalan_tanggal' => $old['surat_jalan_tanggal'] ?: null,
+                'surat_jalan_nomor' => $old['surat_jalan_nomor'],
+                'ready_cgi' => $old['ready_cgi'],
+                'os_dhj' => $old['os_dhj'],
+                'remarks' => $old['remarks'],
+                'progress' => $old['progress'],
+                'status' => $old['status'],
+                'updated_at' => date('Y-m-d H:i:s')
+            ];
+
+            update('logistik_workshop', $data, 'id = :id', ['id' => $itemId]);
+
+            // ✅ LOGIC: Auto-copy to site table when status changed to "Terkirim"
+            if ($oldStatus !== 'Terkirim' && $old['status'] === 'Terkirim') {
+                $siteData = [
+                    'pon' => $ponCode,
+                    'no' => $old['no'],
+                    'nama_parts' => $old['nama_parts'],
+                    'marking' => $old['marking'],
+                    'qty' => $old['qty'],
+                    'sent_to_site_qty' => $old['ready_cgi'], // ✅ sent_to_site_qty = ready_cgi
+                    'sent_to_site_weight' => $old['total_weight_kg'], // ✅ sent_to_site_weight = total_weight_kg
+                    'no_truk' => '',
+                    'foto' => '',
+                    'keterangan' => 'Auto-generated from workshop - Status: Terkirim',
+                    'remarks' => 'Menunggu', // Default status untuk site
+                    'progress' => 0, // Default progress untuk site
+                    'status' => 'Menunggu', // Default status untuk site
+                    'created_at' => date('Y-m-d H:i:s')
+                ];
+
+                if ($existingSiteItem) {
+                    // Update existing site item
+                    update('logistik_site', $siteData, 'id = :id', ['id' => $existingSiteItem['id']]);
+                    $action = 'updated';
+                } else {
+                    // Insert new site item
+                    insert('logistik_site', $siteData);
+                    $action = 'created';
+                }
+
+                // Redirect dengan pesan sukses yang informatif
+                header('Location: logistik_workshop.php?pon=' . urlencode($ponCode) . '&updated=1&site_' . $action . '=1');
+                exit;
+            }
+
+            header('Location: logistik_workshop.php?pon=' . urlencode($ponCode) . '&updated=1');
+            exit;
+        } catch (Exception $e) {
+            $errors['general'] = 'Gagal mengupdate data: ' . $e->getMessage();
+            error_log('Workshop Edit Error: ' . $e->getMessage());
+        }
+    }
+}
+
+// Get all vendors for dropdown
+$vendors = fetchAll('SELECT * FROM vendors ORDER BY name');
+?>
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Edit Item Workshop - <?= h($appName) ?></title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="assets/css/app.css?v=<?= filemtime('assets/css/app.css') ?>">
+    <link rel="stylesheet" href="assets/css/sidebar.css?v=<?= filemtime('assets/css/sidebar.css') ?>">
+    <link rel="stylesheet" href="assets/css/layout.css?v=<?= filemtime('assets/css/layout.css') ?>">
+    <style>
+        .auto-copy-info {
+            background: rgba(139, 92, 246, 0.1);
+            border: 1px solid rgba(139, 92, 246, 0.3);
+            color: #c4b5fd;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 13px;
+        }
+
+        .auto-copy-info i {
+            font-size: 16px;
+            margin-right: 8px;
+        }
+
+        .form-container {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 1000px;
+        }
+
+        .form-header {
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .form-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .form {
+            display: grid;
+            gap: 20px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .field.full-width {
+            grid-column: 1 / -1;
+        }
+
+        .label {
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .label.required::after {
+            content: ' *';
+            color: #ef4444;
+        }
+
+        .input,
+        .select,
+        .textarea {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 10px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .input:focus,
+        .select:focus,
+        .textarea:focus {
+            outline: none;
+            border-color: #3b82f6;
+            background: #0d142a;
+        }
+
+        .textarea {
+            min-height: 80px;
+            resize: vertical;
+        }
+
+        .progress-container {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .progress-input {
+            flex: 1;
+        }
+
+        .progress-bar-preview {
+            width: 100px;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3b82f6, #06b6d4);
+            border-radius: 3px;
+            transition: width 0.3s ease;
+        }
+
+        .actions {
+            display: flex;
+            gap: 12px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+            border: 1px solid;
+        }
+
+        .btn-primary {
+            background: #1d4ed8;
+            border-color: #3b82f6;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #1e40af;
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: #cbd5e1;
+            border-color: var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .error {
+            color: #fca5a5;
+            font-size: 12px;
+            margin-top: 4px;
+        }
+
+        .general-error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .help-text {
+            color: var(--muted);
+            font-size: 11px;
+            margin-top: 4px;
+        }
+
+        .status-info {
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            color: #93c5fd;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            margin-top: 4px;
+        }
+
+        .calculation-info {
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: #86efac;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            margin-top: 4px;
+        }
+
+        .readonly-input {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border);
+            color: var(--muted);
+            padding: 10px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="layout">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="logo" aria-hidden="true"></div>
+            </div>
+            <nav class="nav">
+                <a class="<?= $activeMenu === 'Dashboard' ? 'active' : '' ?>" href="dashboard.php"><span class="icon bi-house"></span> Dashboard</a>
+                <a class="<?= $activeMenu === 'PON' ? 'active' : '' ?>" href="pon.php"><span class="icon bi-journal-text"></span> PON</a>
+                <a class="<?= $activeMenu === 'Task List' ? 'active' : '' ?>" href="tasklist.php"><span class="icon bi-list-check"></span> Task List</a>
+                <a class="<?= $activeMenu === 'Progres Divisi' ? 'active' : '' ?>" href="progres_divisi.php"><span class="icon bi-bar-chart"></span> Progres Divisi</a>
+                <a href="logout.php"><span class="icon bi-box-arrow-right"></span> Logout</a>
+            </nav>
+        </aside>
+
+        <header class="header">
+            <div class="title">Edit Item Workshop - <?= strtoupper(h($ponCode)) ?></div>
+            <div class="meta">
+                <div>Server: <?= h($server) ?></div>
+                <div>PHP <?= PHP_VERSION ?></div>
+                <div><span id="clock" data-epoch="<?= $nowEpoch ?>">—</span> WIB</div>
+            </div>
+        </header>
+
+        <main class="content">
+            <div class="form-container">
+                <div class="form-header">
+                    <div class="form-title">Edit Item Workshop</div>
+                </div>
+
+                <?php if (isset($errors['general'])): ?>
+                    <div class="general-error">
+                        <i class="bi bi-exclamation-circle"></i>
+                        <?= h($errors['general']) ?>
+                    </div>
+                <?php endif; ?>
+
+                <!-- Auto-copy Information -->
+                <div class="auto-copy-info">
+                    <i class="bi bi-info-circle"></i>
+                    <strong>Info Auto-Copy:</strong> Ketika status diubah menjadi "Terkirim" dan disimpan, data akan otomatis tersalin ke tabel Site dengan:
+                    <br>• <strong>Sent to Site Qty</strong> = Ready CGI
+                    <br>• <strong>Sent to Site Weight</strong> = Total Weight
+                    <?php if ($existingSiteItem): ?>
+                        <br>• <em>Item sudah ada di Site dan akan diupdate</em>
+                    <?php endif; ?>
+                </div>
+
+                <form method="post" class="form">
+                    <div class="form-row">
+                        <div class="field">
+                            <label class="label required" for="no">No</label>
+                            <input class="input" type="number" id="no" name="no" value="<?= h($old['no']) ?>" required min="1">
+                            <?php if (isset($errors['no'])): ?>
+                                <div class="error"><?= h($errors['no']) ?></div>
+                            <?php endif; ?>
+                        </div>
+
+                        <div class="field">
+                            <label class="label required" for="nama_parts">Nama Parts</label>
+                            <input class="input" type="text" id="nama_parts" name="nama_parts" value="<?= h($old['nama_parts']) ?>" required>
+                            <?php if (isset($errors['nama_parts'])): ?>
+                                <div class="error"><?= h($errors['nama_parts']) ?></div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="field">
+                            <label class="label" for="marking">Marking</label>
+                            <input class="input" type="text" id="marking" name="marking" value="<?= h($old['marking']) ?>">
+                        </div>
+
+                        <div class="field">
+                            <label class="label required" for="qty">QTY (Pcs)</label>
+                            <input class="input" type="number" id="qty" name="qty" value="<?= h($old['qty']) ?>" required min="0" step="1" oninput="calculateProgress()">
+                            <?php if (isset($errors['qty'])): ?>
+                                <div class="error"><?= h($errors['qty']) ?></div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="field">
+                            <label class="label" for="dimensions">Dimensions (mm)</label>
+                            <input class="input" type="text" id="dimensions" name="dimensions" value="<?= h($old['dimensions']) ?>">
+                        </div>
+
+                        <div class="field">
+                            <label class="label" for="length_mm">Length (mm)</label>
+                            <input class="input" type="number" id="length_mm" name="length_mm" value="<?= h($old['length_mm']) ?>" min="0" step="0.01">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="field">
+                            <label class="label" for="unit_weight_kg">Unit Weight (Kg/Pc)</label>
+                            <input class="input" type="number" id="unit_weight_kg" name="unit_weight_kg" value="<?= h($old['unit_weight_kg']) ?>" min="0" step="0.01">
+                        </div>
+
+                        <div class="field">
+                            <label class="label" for="total_weight_kg">Total Weight (Kg)</label>
+                            <input class="input" type="number" id="total_weight_kg" name="total_weight_kg" value="<?= h($old['total_weight_kg']) ?>" min="0" step="0.01">
+                            <div class="help-text">Akan dihitung otomatis jika kosong (QTY × Unit Weight)</div>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="field">
+                            <label class="label required" for="vendor_id">Vendor</label>
+                            <select class="select" id="vendor_id" name="vendor_id" required>
+                                <option value="">Pilih Vendor</option>
+                                <?php foreach ($vendors as $vendor): ?>
+                                    <option value="<?= $vendor['id'] ?>" <?= $old['vendor_id'] == $vendor['id'] ? 'selected' : '' ?>>
+                                        <?= h($vendor['name']) ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+
+                        <div class="field">
+                            <label class="label" for="surat_jalan_tanggal">Surat Jalan Tanggal</label>
+                            <input class="input" type="date" id="surat_jalan_tanggal" name="surat_jalan_tanggal" value="<?= h($old['surat_jalan_tanggal']) ?>">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="field">
+                            <label class="label" for="surat_jalan_nomor">Surat Jalan Nomor</label>
+                            <input class="input" type="text" id="surat_jalan_nomor" name="surat_jalan_nomor" value="<?= h($old['surat_jalan_nomor']) ?>">
+                        </div>
+
+                        <div class="field">
+                            <label class="label" for="ready_cgi">Ready CGI</label>
+                            <input class="input" type="number" id="ready_cgi" name="ready_cgi" value="<?= h($old['ready_cgi']) ?>" min="0" step="1" oninput="calculateProgress()">
+                            <?php if (isset($errors['ready_cgi'])): ?>
+                                <div class="error"><?= h($errors['ready_cgi']) ?></div>
+                            <?php endif; ?>
+                            <div class="help-text">Nilai default: 0</div>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="field">
+                            <label class="label" for="os_dhj">O/S DHJ</label>
+                            <input class="readonly-input" type="text" id="os_dhj" name="os_dhj" readonly value="<?= h($old['os_dhj']) ?>">
+                            <div class="calculation-info">
+                                <i class="bi bi-calculator"></i>
+                                O/S DHJ = QTY - Ready CGI
+                            </div>
+                        </div>
+
+                        <div class="field">
+                            <label class="label" for="remarks">Remarks</label>
+                            <textarea class="textarea" id="remarks" name="remarks" placeholder="Keterangan tambahan..."><?= h($old['remarks']) ?></textarea>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="field">
+                            <label class="label" for="progress">Progress (%)</label>
+                            <div class="progress-container">
+                                <input class="input progress-input" type="range" id="progress" name="progress"
+                                    min="0" max="100" value="<?= h($old['progress']) ?>" readonly
+                                    oninput="updateProgressPreview(this.value)">
+                                <div class="progress-bar-preview">
+                                    <div class="progress-fill" id="progress-preview" style="width: <?= h($old['progress']) ?>%"></div>
+                                </div>
+                                <span id="progress-value" style="font-size: 12px; color: var(--muted); min-width: 30px;"><?= h($old['progress']) ?>%</span>
+                            </div>
+                            <div class="calculation-info">
+                                <i class="bi bi-calculator"></i>
+                                Progress = (Ready CGI / QTY) × 100%
+                            </div>
+                        </div>
+
+                        <div class="field">
+                            <label class="label required" for="status">Status</label>
+                            <select class="select" id="status" name="status" required onchange="handleStatusChange(this.value)">
+                                <option value="Belum Terkirim" <?= $old['status'] === 'Belum Terkirim' ? 'selected' : '' ?>>Belum Terkirim</option>
+                                <option value="Terkirim" <?= $old['status'] === 'Terkirim' ? 'selected' : '' ?>>Terkirim</option>
+                            </select>
+                            <div class="status-info">
+                                <i class="bi bi-info-circle"></i>
+                                Ubah ke "Terkirim" untuk auto-copy data ke Site
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="actions">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-check-lg"></i>
+                            Update Item
+                        </button>
+                        <a href="logistik_workshop.php?pon=<?= urlencode($ponCode) ?>" class="btn btn-secondary">
+                            <i class="bi bi-x-lg"></i>
+                            Batal
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </main>
+
+        <footer class="footer">© <?= date('Y') ?> <?= h($appName) ?> • Edit Workshop</footer>
+    </div>
+
+    <script>
+        (function() {
+            const el = document.getElementById('clock');
+            if (!el) return;
+            const tz = 'Asia/Jakarta';
+            let now = new Date(Number(el.dataset.epoch) * 1000);
+
+            function tick() {
+                now = new Date(now.getTime() + 1000);
+                el.textContent = now.toLocaleString('id-ID', {
+                    timeZone: tz,
+                    hour12: false
+                });
+            }
+            tick();
+            setInterval(tick, 1000);
+        })();
+
+        function updateProgressPreview(value) {
+            document.getElementById('progress-preview').style.width = value + '%';
+            document.getElementById('progress-value').textContent = value + '%';
+        }
+
+        function calculateProgress() {
+            const qty = parseInt(document.getElementById('qty').value) || 0;
+            const readyCGI = parseInt(document.getElementById('ready_cgi').value) || 0;
+
+            // ✅ LOGIC: O/S DHJ = QTY - Ready CGI
+            const osDHJ = qty - readyCGI;
+            document.getElementById('os_dhj').value = osDHJ;
+
+            // ✅ LOGIC: Progress = Ready CGI / QTY * 100%
+            let progress = 0;
+            if (qty > 0) {
+                progress = Math.round((readyCGI / qty) * 100);
+            }
+
+            document.getElementById('progress').value = progress;
+            updateProgressPreview(progress);
+        }
+
+        function handleStatusChange(status) {
+            const qty = parseInt(document.getElementById('qty').value) || 0;
+
+            if (status === 'Terkirim') {
+                // ✅ Auto-set progress to 100% when status is Terkirim
+                document.getElementById('progress').value = 100;
+                updateProgressPreview(100);
+
+                // ✅ Set Ready CGI = QTY dan O/S DHJ = 0
+                document.getElementById('ready_cgi').value = qty;
+                document.getElementById('os_dhj').value = 0;
+            } else if (status === 'Belum Terkirim') {
+                // Recalculate progress based on current values
+                calculateProgress();
+            }
+        }
+
+        // Auto-calculate total weight
+        const qtyInput = document.getElementById('qty');
+        const unitWeightInput = document.getElementById('unit_weight_kg');
+        const totalWeightInput = document.getElementById('total_weight_kg');
+
+        function calculateTotalWeight() {
+            const qty = parseFloat(qtyInput.value) || 0;
+            const unitWeight = parseFloat(unitWeightInput.value) || 0;
+
+            if (qty > 0 && unitWeight > 0) {
+                totalWeightInput.value = (qty * unitWeight).toFixed(2);
+            }
+        }
+
+        qtyInput.addEventListener('input', calculateTotalWeight);
+        unitWeightInput.addEventListener('input', calculateTotalWeight);
+
+        // Initialize calculations on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            calculateProgress();
+        });
+    </script>
+</body>
+
+</html>

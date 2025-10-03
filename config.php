@@ -200,3 +200,8 @@ function ymd(?string $date): string
 if (file_exists(__DIR__ . '/functions/progress_calculator.php')) {
     require_once __DIR__ . '/functions/progress_calculator.php';
 }
+
+// Include purchasing helpers
+if (file_exists(__DIR__ . '/helpers/purchasing_helpers.php')) {
+    require_once __DIR__ . '/helpers/purchasing_helpers.php';
+}
