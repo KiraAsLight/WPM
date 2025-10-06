@@ -25,14 +25,12 @@ $old = [
   'qty' => '',
   'date_pon' => '',
   'date_finish' => '',
-  'status' => 'Progress',
   'alamat_kontrak' => '',
   'no_contract' => '',
   'contract_date' => '',
   'project_start' => '',
   'subject' => '',
   'material_type' => '',
-  'custom_material' => '', // Tambahan untuk custom material
 ];
 
 // Ambil material types yang sudah ada di database untuk suggestions
@@ -48,19 +46,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $old['qty'] = trim($_POST['qty'] ?? '');
   $old['date_pon'] = trim($_POST['date_pon'] ?? '');
   $old['date_finish'] = trim($_POST['date_finish'] ?? '');
-  $old['status'] = trim($_POST['status'] ?? 'Progress');
   $old['alamat_kontrak'] = trim($_POST['alamat_kontrak'] ?? '');
   $old['no_contract'] = trim($_POST['no_contract'] ?? '');
   $old['contract_date'] = trim($_POST['contract_date'] ?? '');
   $old['project_start'] = trim($_POST['project_start'] ?? '');
   $old['subject'] = trim($_POST['subject'] ?? '');
   $old['material_type'] = trim($_POST['material_type'] ?? '');
-  $old['custom_material'] = trim($_POST['custom_material'] ?? '');
-
-  // Handle material type selection
-  if ($old['material_type'] === 'custom' && $old['custom_material'] !== '') {
-    $old['material_type'] = $old['custom_material'];
-  }
 
   // Validasi
   if ($old['job_no'] === '') {
@@ -103,14 +94,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   // Validasi Material Type
   if ($old['material_type'] === '') {
     $errors['material_type'] = 'Jenis Material wajib diisi';
-  } elseif ($old['material_type'] === 'custom' && $old['custom_material'] === '') {
-    $errors['custom_material'] = 'Nama material custom wajib diisi';
-  }
-
-  // Validasi Status
-  $statuses = ['Selesai', 'Progress', 'Pending', 'Delayed'];
-  if (!in_array($old['status'], $statuses, true)) {
-    $errors['status'] = 'Status tidak valid';
   }
 
   // Validasi Tanggal
@@ -145,7 +128,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   // Simpan ke database jika valid
   if (!$errors) {
     try {
-      // Data untuk insert
+      // Data untuk insert - progress default 0%, status default 'Progress'
       $data = [
         'job_no' => $old['job_no'],
         'pon' => $old['pon'],
@@ -153,12 +136,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'nama_proyek' => $old['nama_proyek'],
         'project_manager' => $old['project_manager'],
         'qty' => (int) $old['qty'],
-        'progress' => 0,
+        'progress' => 0, // Default 0%
         'fabrikasi_imported' => 0,
         'logistik_imported' => 0,
         'date_pon' => date('Y-m-d', strtotime($old['date_pon'])),
         'date_finish' => $old['date_finish'] ? date('Y-m-d', strtotime($old['date_finish'])) : null,
-        'status' => $old['status'],
+        'status' => 'Progress', // Default 'Progress'
         'alamat_kontrak' => $old['alamat_kontrak'],
         'no_contract' => $old['no_contract'],
         'contract_date' => $old['contract_date'] ? date('Y-m-d', strtotime($old['contract_date'])) : null,
@@ -169,22 +152,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
       $insertedId = insert('pon', $data);
 
-      // // Create default tasks for each division
-      // $divisions = ['Engineering', 'Logistik', 'Pabrikasi', 'Purchasing'];
-      // foreach ($divisions as $division) {
-      //   $taskData = [
-      //     'pon' => $old['pon'],
-      //     'division' => $division,
-      //     'title' => 'Task awal - ' . $division,
-      //     'assignee' => '',
-      //     'priority' => 'Medium',
-      //     'progress' => 0,
-      //     'status' => 'To Do',
-      //     'start_date' => date('Y-m-d', strtotime($old['project_start'])),
-      //     'due_date' => $old['date_finish'] ? date('Y-m-d', strtotime($old['date_finish'])) : null,
-      //   ];
-      //   insert('tasks', $taskData);
-      // }
+      // Create default tasks for each division
+      $divisions = ['Engineering', 'Logistik', 'Pabrikasi', 'Purchasing'];
+      foreach ($divisions as $division) {
+        $taskData = [
+          'pon' => $old['pon'],
+          'division' => $division,
+          'title' => 'Task awal - ' . $division,
+          'assignee' => '',
+          'priority' => 'Medium',
+          'progress' => 0,
+          'status' => 'To Do',
+          'start_date' => date('Y-m-d', strtotime($old['project_start'])),
+          'due_date' => $old['date_finish'] ? date('Y-m-d', strtotime($old['date_finish'])) : null,
+        ];
+        insert('tasks', $taskData);
+      }
 
       header('Location: pon.php?added=1');
       exit;
@@ -307,23 +290,71 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       border-bottom: 1px solid var(--border);
     }
 
-    /* Custom Material Styles */
+    /* Material Select Styles */
+    .material-select-wrapper {
+      position: relative;
+    }
+
+    .material-select {
+      width: 100%;
+      background: #0d142a;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px;
+      border-radius: 8px;
+      font-family: inherit;
+      cursor: pointer;
+    }
+
+    .material-select:focus {
+      outline: none;
+      border-color: #3b82f6;
+    }
+
+    .material-options {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: #0d142a;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-top: 4px;
+      max-height: 200px;
+      overflow-y: auto;
+      z-index: 1000;
+      display: none;
+    }
+
+    .material-options.show {
+      display: block;
+    }
+
     .material-option {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      border-radius: 6px;
+      padding: 10px 12px;
       cursor: pointer;
       transition: background 0.2s;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .material-option:last-child {
+      border-bottom: none;
     }
 
     .material-option:hover {
       background: rgba(255, 255, 255, 0.05);
     }
 
-    .material-option input[type="radio"] {
-      margin: 0;
+    .material-option.add-new {
+      color: #3b82f6;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .material-option.add-new i {
+      font-size: 14px;
     }
 
     .custom-material-input {
@@ -506,58 +537,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div class="field" style="grid-column:1/-1">
               <label class="label">Jenis Material *</label>
 
-              <!-- Material Options -->
-              <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;">
-                <!-- Standard Materials -->
-                <label class="material-option">
-                  <input type="radio" name="material_type" value="AG25" <?= $old['material_type'] === 'AG25' ? 'checked' : '' ?> onchange="toggleCustomMaterial(false)">
-                  <span>AG25</span>
-                </label>
+              <!-- Custom Material Select -->
+              <div class="material-select-wrapper">
+                <input type="text"
+                  class="material-select"
+                  id="material_select"
+                  placeholder="+ Tambah material..."
+                  readonly
+                  onclick="toggleMaterialOptions()">
+                <input type="hidden" name="material_type" id="material_type" value="<?= h($old['material_type']) ?>">
 
-                <label class="material-option">
-                  <input type="radio" name="material_type" value="AG32" <?= $old['material_type'] === 'AG32' ? 'checked' : '' ?> onchange="toggleCustomMaterial(false)">
-                  <span>AG32</span>
-                </label>
+                <div class="material-options" id="material_options">
+                  <!-- Option untuk tambah material baru -->
+                  <div class="material-option add-new" onclick="showCustomMaterialInput()">
+                    <i class="bi bi-plus-circle"></i>
+                    <span>+ Tambah material baru</span>
+                  </div>
 
-                <label class="material-option">
-                  <input type="radio" name="material_type" value="AG50" <?= $old['material_type'] === 'AG50' ? 'checked' : '' ?> onchange="toggleCustomMaterial(false)">
-                  <span>AG50</span>
-                </label>
-
-                <!-- Custom Material Option -->
-                <label class="material-option">
-                  <input type="radio" name="material_type" value="custom" <?= $old['material_type'] === 'custom' || (!in_array($old['material_type'], ['AG25', 'AG32', 'AG50', '']) && $old['material_type'] !== '') ? 'checked' : '' ?> onchange="toggleCustomMaterial(true)" id="custom_material_radio">
-                  <span>Material Lainnya</span>
-                </label>
+                  <!-- Material suggestions -->
+                  <?php if (!empty($materialSuggestions)): ?>
+                    <?php foreach ($materialSuggestions as $suggestion): ?>
+                      <div class="material-option" onclick="selectMaterial('<?= h($suggestion) ?>')">
+                        <?= h($suggestion) ?>
+                      </div>
+                    <?php endforeach; ?>
+                  <?php endif; ?>
+                </div>
               </div>
 
               <!-- Custom Material Input -->
-              <div class="custom-material-input <?= ($old['material_type'] === 'custom' || (!in_array($old['material_type'], ['AG25', 'AG32', 'AG50', '']) && $old['material_type'] !== '')) ? 'show' : '' ?>" id="custom_material_container">
+              <div class="custom-material-input" id="custom_material_container">
                 <input type="text"
                   class="input"
-                  name="custom_material"
-                  placeholder="Masukkan nama material (contoh: Baja Ringan, Besi Beton, dll.)"
-                  value="<?= h($old['material_type'] === 'custom' ? $old['custom_material'] : ($old['material_type'] !== '' && !in_array($old['material_type'], ['AG25', 'AG32', 'AG50']) ? $old['material_type'] : '')) ?>">
-                <?php if (isset($errors['custom_material'])): ?>
-                  <div class="error"><?= h($errors['custom_material']) ?></div>
-                <?php endif; ?>
-              </div>
-
-              <!-- Material Suggestions -->
-              <?php if (!empty($materialSuggestions)): ?>
-                <div class="material-suggestions">
-                  <div class="suggestion-title">Material yang pernah digunakan:</div>
-                  <div class="suggestion-tags">
-                    <?php foreach ($materialSuggestions as $suggestion): ?>
-                      <?php if (!in_array($suggestion, ['AG25', 'AG32', 'AG50'])): ?>
-                        <span class="suggestion-tag" onclick="selectCustomMaterial('<?= h($suggestion) ?>')">
-                          <?= h($suggestion) ?>
-                        </span>
-                      <?php endif; ?>
-                    <?php endforeach; ?>
-                  </div>
+                  id="custom_material_input"
+                  placeholder="Masukkan nama material (contoh: Baja Ringan, Besi Beton, dll.)">
+                <div style="display: flex; gap: 8px; margin-top: 8px;">
+                  <button type="button" class="btn" onclick="saveCustomMaterial()" style="padding: 8px 12px; font-size: 12px;">
+                    Simpan Material
+                  </button>
+                  <button type="button" class="btn secondary" onclick="cancelCustomMaterial()" style="padding: 8px 12px; font-size: 12px;">
+                    Batal
+                  </button>
                 </div>
-              <?php endif; ?>
+              </div>
 
               <?php if (isset($errors['material_type'])): ?>
                 <div class="error"><?= h($errors['material_type']) ?></div>
@@ -598,17 +620,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
               <?php endif; ?>
             </div>
 
-            <div class="field">
-              <label class="label" for="status">Status</label>
-              <select class="select" id="status" name="status">
-                <?php foreach (['Selesai', 'Progress', 'Pending', 'Delayed'] as $st): ?>
-                  <option value="<?= h($st) ?>" <?= $old['status'] === $st ? 'selected' : '' ?>><?= h($st) ?></option>
-                <?php endforeach; ?>
-              </select>
-              <?php if (isset($errors['status'])): ?>
-                <div class="error"><?= h($errors['status']) ?></div>
-              <?php endif; ?>
-            </div>
+            <!-- PROGRESS & STATUS DIHAPUS -->
 
             <div class="field" style="grid-column:1/-1">
               <div class="actions">
@@ -634,32 +646,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       projectStart.valueAsDate = new Date();
     }
 
-    // Toggle custom material input
-    function toggleCustomMaterial(show) {
-      const customContainer = document.getElementById('custom_material_container');
-      if (show) {
-        customContainer.classList.add('show');
-      } else {
-        customContainer.classList.remove('show');
+    // Material selection functions
+    function toggleMaterialOptions() {
+      const options = document.getElementById('material_options');
+      options.classList.toggle('show');
+    }
+
+    function showCustomMaterialInput() {
+      document.getElementById('material_options').classList.remove('show');
+      document.getElementById('custom_material_container').classList.add('show');
+      document.getElementById('custom_material_input').focus();
+    }
+
+    function selectMaterial(materialName) {
+      document.getElementById('material_select').value = materialName;
+      document.getElementById('material_type').value = materialName;
+      document.getElementById('material_options').classList.remove('show');
+    }
+
+    function saveCustomMaterial() {
+      const customInput = document.getElementById('custom_material_input');
+      const materialName = customInput.value.trim();
+
+      if (materialName) {
+        document.getElementById('material_select').value = materialName;
+        document.getElementById('material_type').value = materialName;
+        document.getElementById('custom_material_container').classList.remove('show');
+        customInput.value = '';
       }
     }
 
-    // Select custom material from suggestions
-    function selectCustomMaterial(materialName) {
-      document.getElementById('custom_material_radio').checked = true;
-      document.querySelector('input[name="custom_material"]').value = materialName;
-      toggleCustomMaterial(true);
+    function cancelCustomMaterial() {
+      document.getElementById('custom_material_container').classList.remove('show');
+      document.getElementById('custom_material_input').value = '';
     }
 
-    // Initialize custom material if existing value is not in standard options
+    // Close material options when clicking outside
+    document.addEventListener('click', function(event) {
+      const materialWrapper = document.querySelector('.material-select-wrapper');
+      const materialOptions = document.getElementById('material_options');
+
+      if (!materialWrapper.contains(event.target)) {
+        materialOptions.classList.remove('show');
+      }
+    });
+
+    // Initialize material select dengan nilai existing
     document.addEventListener('DOMContentLoaded', function() {
       const currentMaterial = '<?= h($old['material_type']) ?>';
-      const standardMaterials = ['AG25', 'AG32', 'AG50'];
-
-      if (currentMaterial && !standardMaterials.includes(currentMaterial) && currentMaterial !== 'custom') {
-        document.getElementById('custom_material_radio').checked = true;
-        document.querySelector('input[name="custom_material"]').value = currentMaterial;
-        toggleCustomMaterial(true);
+      if (currentMaterial) {
+        document.getElementById('material_select').value = currentMaterial;
       }
     });
   </script>

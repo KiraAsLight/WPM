@@ -15,13 +15,13 @@ $activeMenu = 'PON';
 $server = $_SERVER['SERVER_SOFTWARE'] ?? 'Apache';
 $nowEpoch = time();
 
-// Load PON data dari database
-$ponCode = isset($_GET['pon']) ? trim($_GET['pon']) : '';
+// Load PON data dari database - GUNAKAN job_no bukan pon
+$jobNo = isset($_GET['job_no']) ? trim($_GET['job_no']) : '';
 $ponRecord = null;
 
-if ($ponCode) {
+if ($jobNo) {
   try {
-    $ponRecord = fetchOne('SELECT * FROM pon WHERE pon = ?', [$ponCode]);
+    $ponRecord = fetchOne('SELECT * FROM pon WHERE job_no = ?', [$jobNo]);
   } catch (Exception $e) {
     error_log('Error fetching PON: ' . $e->getMessage());
   }
@@ -34,118 +34,149 @@ if (!$ponRecord) {
 
 $errors = [];
 $old = [
+  'job_no' => (string)($ponRecord['job_no'] ?? ''),
   'pon' => (string)($ponRecord['pon'] ?? ''),
-  'type' => (string)($ponRecord['type'] ?? ''),
   'client' => (string)($ponRecord['client'] ?? ''),
   'nama_proyek' => (string)($ponRecord['nama_proyek'] ?? ''),
-  'job_type' => (string)($ponRecord['job_type'] ?? ''),
-  'berat' => (string)($ponRecord['berat'] ?? ''),
+  'project_manager' => (string)($ponRecord['project_manager'] ?? ''),
   'qty' => (string)($ponRecord['qty'] ?? ''),
   'date_pon' => (string)($ponRecord['date_pon'] ?? ''),
   'date_finish' => (string)($ponRecord['date_finish'] ?? ''),
-  'status' => (string)($ponRecord['status'] ?? 'Progres'),
+  'status' => (string)($ponRecord['status'] ?? 'Progress'),
   'alamat_kontrak' => (string)($ponRecord['alamat_kontrak'] ?? ''),
   'no_contract' => (string)($ponRecord['no_contract'] ?? ''),
-  'pic' => (string)($ponRecord['pic'] ?? ''),
-  'owner' => (string)($ponRecord['owner'] ?? ''),
+  'contract_date' => (string)($ponRecord['contract_date'] ?? ''),
+  'project_start' => (string)($ponRecord['project_start'] ?? ''),
+  'subject' => (string)($ponRecord['subject'] ?? ''),
+  'material_type' => (string)($ponRecord['material_type'] ?? ''),
 ];
+
+// Ambil material types yang sudah ada di database untuk suggestions
+$existingMaterials = fetchAll("SELECT DISTINCT material_type FROM pon WHERE material_type IS NOT NULL AND material_type != ''");
+$materialSuggestions = array_map(fn($m) => $m['material_type'], $existingMaterials);
 
 // Proses submit
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+  $old['job_no'] = trim($_POST['job_no'] ?? '');
   $old['pon'] = trim($_POST['pon'] ?? '');
-  $old['type'] = trim($_POST['type'] ?? '');
   $old['client'] = trim($_POST['client'] ?? '');
   $old['nama_proyek'] = trim($_POST['nama_proyek'] ?? '');
-  $old['job_type'] = trim($_POST['job_type'] ?? '');
-  $old['berat'] = trim($_POST['berat'] ?? '');
+  $old['project_manager'] = trim($_POST['project_manager'] ?? '');
   $old['qty'] = trim($_POST['qty'] ?? '');
   $old['date_pon'] = trim($_POST['date_pon'] ?? '');
   $old['date_finish'] = trim($_POST['date_finish'] ?? '');
-  $old['status'] = trim($_POST['status'] ?? 'Progres');
+  $old['status'] = trim($_POST['status'] ?? 'Progress');
   $old['alamat_kontrak'] = trim($_POST['alamat_kontrak'] ?? '');
   $old['no_contract'] = trim($_POST['no_contract'] ?? '');
-  $old['pic'] = trim($_POST['pic'] ?? '');
-  $old['owner'] = trim($_POST['owner'] ?? '');
+  $old['contract_date'] = trim($_POST['contract_date'] ?? '');
+  $old['project_start'] = trim($_POST['project_start'] ?? '');
+  $old['subject'] = trim($_POST['subject'] ?? '');
+  $old['material_type'] = trim($_POST['material_type'] ?? '');
 
   // Validasi
-  if ($old['pon'] === '') {
-    $errors['pon'] = 'Kode PON wajib diisi';
+  if ($old['job_no'] === '') {
+    $errors['job_no'] = 'Job Number wajib diisi';
   } else {
-    // Cek duplikasi PON (kecuali PON yang sedang diedit)
-    try {
-      $existing = fetchOne('SELECT id FROM pon WHERE pon = ? AND id != ?', [$old['pon'], $ponRecord['id']]);
-      if ($existing) {
-        $errors['pon'] = 'Kode PON sudah ada';
+    // Validasi format Job Number (W-XXX)
+    if (!preg_match('/^W-\d+$/', $old['job_no'])) {
+      $errors['job_no'] = 'Format Job Number harus W-XXX (contoh: W-713)';
+    } else {
+      // Cek duplikasi Job Number (kecuali yang sedang diedit)
+      try {
+        $existing = fetchOne('SELECT id FROM pon WHERE job_no = ? AND id != ?', [$old['job_no'], $ponRecord['id']]);
+        if ($existing) {
+          $errors['job_no'] = 'Job Number sudah ada';
+        }
+      } catch (Exception $e) {
+        $errors['job_no'] = 'Error checking Job Number: ' . $e->getMessage();
       }
-    } catch (Exception $e) {
-      $errors['pon'] = 'Error checking PON: ' . $e->getMessage();
     }
   }
 
-  if ($old['type'] === '') $errors['type'] = 'Type wajib diisi';
-  if ($old['client'] === '') $errors['client'] = 'Client wajib diisi';
-  if ($old['nama_proyek'] === '') $errors['nama_proyek'] = 'Nama Proyek wajib diisi';
-
-  $jobTypes = ['pengadaan', 'pengiriman', 'pemasangan', 'konsultan'];
-  if ($old['job_type'] === '') {
-    $errors['job_type'] = 'Type pekerjaan wajib diisi';
-  } elseif (!in_array($old['job_type'], $jobTypes, true)) {
-    $errors['job_type'] = 'Type pekerjaan tidak valid';
+  if ($old['pon'] === '') {
+    $errors['pon'] = 'Nomor PON wajib diisi';
+  }
+  if ($old['client'] === '') {
+    $errors['client'] = 'Client wajib diisi';
+  }
+  if ($old['nama_proyek'] === '') {
+    $errors['nama_proyek'] = 'Nama Proyek wajib diisi';
+  }
+  if ($old['project_manager'] === '') {
+    $errors['project_manager'] = 'Project Manager wajib diisi';
   }
 
-  if ($old['berat'] === '' || !is_numeric($old['berat']) || (float) $old['berat'] < 0) {
-    $errors['berat'] = 'Berat harus angka >= 0';
+  // Validasi Quantity
+  if ($old['qty'] === '' || !is_numeric($old['qty']) || (int) $old['qty'] <= 0) {
+    $errors['qty'] = 'Quantity harus angka > 0';
   }
 
-  if ($old['qty'] === '' || !is_numeric($old['qty']) || (int) $old['qty'] < 0) {
-    $errors['qty'] = 'QTY harus angka >= 0';
+  // Validasi Material Type
+  if ($old['material_type'] === '') {
+    $errors['material_type'] = 'Jenis Material wajib diisi';
   }
 
-  $statuses = ['Selesai', 'Progres', 'Pending', 'Delayed'];
+  // Validasi Status
+  $statuses = ['Selesai', 'Progress', 'Pending', 'Delayed'];
   if (!in_array($old['status'], $statuses, true)) {
     $errors['status'] = 'Status tidak valid';
   }
 
+  // Validasi Tanggal
   $datePonOk = $old['date_pon'] === '' ? false : (bool) strtotime($old['date_pon']);
+  $dateStartOk = $old['project_start'] === '' ? false : (bool) strtotime($old['project_start']);
   $dateFinishOk = $old['date_finish'] === '' ? true : (bool) strtotime($old['date_finish']);
-  if (!$datePonOk) $errors['date_pon'] = 'Tanggal PON tidak valid atau wajib diisi';
-  if (!$dateFinishOk) $errors['date_finish'] = 'Tanggal Finish tidak valid';
+  $dateContractOk = $old['contract_date'] === '' ? true : (bool) strtotime($old['contract_date']);
 
-  if ($old['alamat_kontrak'] === '') $errors['alamat_kontrak'] = 'Alamat Kontrak wajib diisi';
-  if ($old['no_contract'] === '') $errors['no_contract'] = 'No Contract wajib diisi';
-  if ($old['pic'] === '') $errors['pic'] = 'PIC wajib diisi';
-  if ($old['owner'] === '') $errors['owner'] = 'Owner wajib diisi';
+  if (!$datePonOk) {
+    $errors['date_pon'] = 'Tanggal PON tidak valid atau wajib diisi';
+  }
+  if (!$dateStartOk) {
+    $errors['project_start'] = 'Tanggal Project Start tidak valid atau wajib diisi';
+  }
+  if (!$dateFinishOk) {
+    $errors['date_finish'] = 'Tanggal Finish tidak valid';
+  }
+  if (!$dateContractOk) {
+    $errors['contract_date'] = 'Tanggal Kontrak tidak valid';
+  }
+
+  if ($old['alamat_kontrak'] === '') {
+    $errors['alamat_kontrak'] = 'Alamat Kontrak wajib diisi';
+  }
+  if ($old['no_contract'] === '') {
+    $errors['no_contract'] = 'No Contract wajib diisi';
+  }
+  if ($old['subject'] === '') {
+    $errors['subject'] = 'Subject wajib diisi';
+  }
 
   // Simpan jika valid
   if (!$errors) {
     try {
       $updateData = [
+        'job_no' => $old['job_no'],
         'pon' => $old['pon'],
-        'type' => $old['type'],
         'client' => $old['client'],
         'nama_proyek' => $old['nama_proyek'],
-        'job_type' => $old['job_type'],
-        'berat' => (float) $old['berat'],
+        'project_manager' => $old['project_manager'],
         'qty' => (int) $old['qty'],
         'date_pon' => date('Y-m-d', strtotime($old['date_pon'])),
         'date_finish' => $old['date_finish'] ? date('Y-m-d', strtotime($old['date_finish'])) : null,
         'status' => $old['status'],
         'alamat_kontrak' => $old['alamat_kontrak'],
         'no_contract' => $old['no_contract'],
-        'pic' => $old['pic'],
-        'owner' => $old['owner'],
+        'contract_date' => $old['contract_date'] ? date('Y-m-d', strtotime($old['contract_date'])) : null,
+        'project_start' => date('Y-m-d', strtotime($old['project_start'])),
+        'subject' => $old['subject'],
+        'material_type' => $old['material_type'],
       ];
 
       $rowsUpdated = update('pon', $updateData, 'id = :id', ['id' => $ponRecord['id']]);
 
       // Update tasks jika PON code berubah
-      if ($old['pon'] !== $ponCode) {
-        update('tasks', ['pon' => $old['pon']], 'pon = :old_pon', ['old_pon' => $ponCode]);
-      }
-
-      // Auto-update progress based on status
-      if (function_exists('updateProgressByStatus')) {
-        updateProgressByStatus($old['pon'], $old['status']);
+      if ($old['pon'] !== $ponRecord['pon']) {
+        update('tasks', ['pon' => $old['pon']], 'pon = :old_pon', ['old_pon' => $ponRecord['pon']]);
       }
 
       if ($rowsUpdated > 0) {
@@ -200,12 +231,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     .input,
-    .select {
+    .select,
+    .textarea {
       background: #0d142a;
       border: 1px solid var(--border);
       color: var(--text);
       padding: 10px;
-      border-radius: 8px
+      border-radius: 8px;
+      font-family: inherit;
+    }
+
+    .textarea {
+      resize: vertical;
+      min-height: 80px;
     }
 
     .actions {
@@ -255,13 +293,140 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       margin-bottom: 16px;
     }
 
-    .success {
-      background: rgba(34, 197, 94, .12);
-      color: #86efac;
-      border: 1px solid rgba(34, 197, 94, .35);
+    .section-header {
+      grid-column: 1 / -1;
+      margin: 20px 0 10px 0;
+      color: var(--text);
+      font-size: 16px;
+      font-weight: 600;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* Material Select Styles */
+    .material-select-wrapper {
+      position: relative;
+    }
+
+    .material-select {
+      width: 100%;
+      background: #0d142a;
+      border: 1px solid var(--border);
+      color: var(--text);
       padding: 10px;
-      border-radius: 10px;
-      margin-bottom: 10px
+      border-radius: 8px;
+      font-family: inherit;
+      cursor: pointer;
+    }
+
+    .material-select:focus {
+      outline: none;
+      border-color: #3b82f6;
+    }
+
+    .material-options {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: #0d142a;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-top: 4px;
+      max-height: 200px;
+      overflow-y: auto;
+      z-index: 1000;
+      display: none;
+    }
+
+    .material-options.show {
+      display: block;
+    }
+
+    .material-option {
+      padding: 10px 12px;
+      cursor: pointer;
+      transition: background 0.2s;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .material-option:last-child {
+      border-bottom: none;
+    }
+
+    .material-option:hover {
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .material-option.add-new {
+      color: #3b82f6;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .material-option.add-new i {
+      font-size: 14px;
+    }
+
+    .custom-material-input {
+      margin-top: 8px;
+      display: none;
+    }
+
+    .custom-material-input.show {
+      display: block;
+      animation: fadeIn 0.3s ease;
+    }
+
+    .material-suggestions {
+      margin-top: 8px;
+      padding: 8px;
+      background: rgba(255, 255, 255, 0.02);
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+
+    .suggestion-title {
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .suggestion-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .suggestion-tag {
+      background: rgba(59, 130, 246, 0.1);
+      color: #3b82f6;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .suggestion-tag:hover {
+      background: rgba(59, 130, 246, 0.2);
+      transform: translateY(-1px);
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(-5px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
   </style>
 </head>
@@ -284,7 +449,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <!-- Header -->
     <header class="header">
-      <div class="title">Edit PON: <?= h($ponCode) ?></div>
+      <div class="title">Edit Project: <?= h($ponRecord['job_no']) ?></div>
       <div class="meta">
         <div>Server: <?= h($server) ?></div>
         <div>PHP <?= PHP_VERSION ?></div>
@@ -295,127 +460,194 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <!-- Content -->
     <main class="content">
       <section class="section">
-        <div class="hd">Form Edit PON</div>
+        <div class="hd">Form Edit Project</div>
         <div class="bd">
           <?php if (isset($errors['general'])): ?>
             <div class="general-error"><?= h($errors['general']) ?></div>
           <?php endif; ?>
 
           <form method="post" class="form" autocomplete="off">
+            <div class="section-header">Informasi Project</div>
+
             <div class="field">
-              <label class="label" for="pon">Kode PON</label>
+              <label class="label" for="job_no">Job Number *</label>
+              <input class="input" id="job_no" name="job_no" value="<?= h($old['job_no']) ?>"
+                placeholder="W-713" pattern="W-\d+" required>
+              <?php if (isset($errors['job_no'])): ?>
+                <div class="error"><?= h($errors['job_no']) ?></div>
+              <?php endif; ?>
+            </div>
+
+            <div class="field">
+              <label class="label" for="pon">Nomor PON *</label>
               <input class="input" id="pon" name="pon" value="<?= h($old['pon']) ?>" required>
               <?php if (isset($errors['pon'])): ?>
-                <div class="error"><?= h($errors['pon']) ?></div><?php endif; ?>
+                <div class="error"><?= h($errors['pon']) ?></div>
+              <?php endif; ?>
             </div>
 
             <div class="field">
-              <label class="label" for="type">Type</label>
-              <input class="input" id="type" name="type" value="<?= h($old['type']) ?>" required>
-              <?php if (isset($errors['type'])): ?>
-                <div class="error"><?= h($errors['type']) ?></div><?php endif; ?>
-            </div>
-
-            <div class="field">
-              <label class="label" for="client">Client</label>
+              <label class="label" for="client">Client *</label>
               <input class="input" id="client" name="client" value="<?= h($old['client']) ?>" required>
               <?php if (isset($errors['client'])): ?>
-                <div class="error"><?= h($errors['client']) ?></div><?php endif; ?>
+                <div class="error"><?= h($errors['client']) ?></div>
+              <?php endif; ?>
             </div>
 
             <div class="field">
-              <label class="label" for="nama_proyek">Nama Proyek</label>
+              <label class="label" for="nama_proyek">Nama Proyek *</label>
               <input class="input" id="nama_proyek" name="nama_proyek" value="<?= h($old['nama_proyek']) ?>" required>
               <?php if (isset($errors['nama_proyek'])): ?>
-                <div class="error"><?= h($errors['nama_proyek']) ?></div><?php endif; ?>
+                <div class="error"><?= h($errors['nama_proyek']) ?></div>
+              <?php endif; ?>
             </div>
 
             <div class="field">
-              <label class="label" for="job_type">Type Pekerjaan</label>
-              <select class="select" id="job_type" name="job_type" required>
-                <option value="">Pilih Type Pekerjaan</option>
-                <option value="pengadaan" <?= $old['job_type'] === 'pengadaan' ? 'selected' : '' ?>>Pengadaan</option>
-                <option value="pengiriman" <?= $old['job_type'] === 'pengiriman' ? 'selected' : '' ?>>Pengiriman</option>
-                <option value="pemasangan" <?= $old['job_type'] === 'pemasangan' ? 'selected' : '' ?>>Pemasangan</option>
-                <option value="konsultan" <?= $old['job_type'] === 'konsultan' ? 'selected' : '' ?>>Konsultan</option>
-              </select>
-              <?php if (isset($errors['job_type'])): ?>
-                <div class="error"><?= h($errors['job_type']) ?></div><?php endif; ?>
+              <label class="label" for="project_manager">Project Manager *</label>
+              <input class="input" id="project_manager" name="project_manager" value="<?= h($old['project_manager']) ?>" required>
+              <?php if (isset($errors['project_manager'])): ?>
+                <div class="error"><?= h($errors['project_manager']) ?></div>
+              <?php endif; ?>
             </div>
 
             <div class="field">
-              <label class="label" for="berat">Berat (Kg)</label>
-              <input class="input" id="berat" name="berat" type="number" step="0.01" min="0"
-                value="<?= h($old['berat']) ?>" required>
-              <?php if (isset($errors['berat'])): ?>
-                <div class="error"><?= h($errors['berat']) ?></div><?php endif; ?>
+              <label class="label" for="subject">Subject *</label>
+              <input class="input" id="subject" name="subject" value="<?= h($old['subject']) ?>" required>
+              <?php if (isset($errors['subject'])): ?>
+                <div class="error"><?= h($errors['subject']) ?></div>
+              <?php endif; ?>
+            </div>
+
+            <div class="section-header">Informasi Kontrak</div>
+
+            <div class="field">
+              <label class="label" for="no_contract">No Contract *</label>
+              <input class="input" id="no_contract" name="no_contract" value="<?= h($old['no_contract']) ?>" required>
+              <?php if (isset($errors['no_contract'])): ?>
+                <div class="error"><?= h($errors['no_contract']) ?></div>
+              <?php endif; ?>
             </div>
 
             <div class="field">
-              <label class="label" for="qty">QTY</label>
-              <input class="input" id="qty" name="qty" type="number" min="0" value="<?= h($old['qty']) ?>" required>
+              <label class="label" for="contract_date">Tanggal Kontrak</label>
+              <input class="input" id="contract_date" name="contract_date" type="date" value="<?= h($old['contract_date']) ?>">
+              <?php if (isset($errors['contract_date'])): ?>
+                <div class="error"><?= h($errors['contract_date']) ?></div>
+              <?php endif; ?>
+            </div>
+
+            <div class="field" style="grid-column:1/-1">
+              <label class="label" for="alamat_kontrak">Alamat Kontrak *</label>
+              <textarea class="textarea" id="alamat_kontrak" name="alamat_kontrak" required><?= h($old['alamat_kontrak']) ?></textarea>
+              <?php if (isset($errors['alamat_kontrak'])): ?>
+                <div class="error"><?= h($errors['alamat_kontrak']) ?></div>
+              <?php endif; ?>
+            </div>
+
+            <div class="section-header">Spesifikasi Teknis</div>
+
+            <div class="field" style="grid-column:1/-1">
+              <label class="label">Jenis Material *</label>
+
+              <!-- Custom Material Select -->
+              <div class="material-select-wrapper">
+                <input type="text"
+                  class="material-select"
+                  id="material_select"
+                  placeholder="Klik untuk memilih material..."
+                  readonly
+                  value="<?= h($old['material_type']) ?>"
+                  onclick="toggleMaterialOptions()">
+                <input type="hidden" name="material_type" id="material_type" value="<?= h($old['material_type']) ?>">
+
+                <div class="material-options" id="material_options">
+                  <!-- Option untuk tambah material baru -->
+                  <div class="material-option add-new" onclick="showCustomMaterialInput()">
+                    <i class="bi bi-plus-circle"></i>
+                    <span>+ Tambah material baru</span>
+                  </div>
+
+                  <!-- Material suggestions -->
+                  <?php if (!empty($materialSuggestions)): ?>
+                    <?php foreach ($materialSuggestions as $suggestion): ?>
+                      <div class="material-option" onclick="selectMaterial('<?= h($suggestion) ?>')">
+                        <?= h($suggestion) ?>
+                      </div>
+                    <?php endforeach; ?>
+                  <?php endif; ?>
+                </div>
+              </div>
+
+              <!-- Custom Material Input -->
+              <div class="custom-material-input" id="custom_material_container">
+                <input type="text"
+                  class="input"
+                  id="custom_material_input"
+                  placeholder="Masukkan nama material (contoh: Baja Ringan, Besi Beton, dll.)">
+                <div style="display: flex; gap: 8px; margin-top: 8px;">
+                  <button type="button" class="btn" onclick="saveCustomMaterial()" style="padding: 8px 12px; font-size: 12px;">
+                    Simpan Material
+                  </button>
+                  <button type="button" class="btn secondary" onclick="cancelCustomMaterial()" style="padding: 8px 12px; font-size: 12px;">
+                    Batal
+                  </button>
+                </div>
+              </div>
+
+              <?php if (isset($errors['material_type'])): ?>
+                <div class="error"><?= h($errors['material_type']) ?></div>
+              <?php endif; ?>
+            </div>
+
+            <div class="field">
+              <label class="label" for="qty">Quantity *</label>
+              <input class="input" id="qty" name="qty" type="number" min="1" value="<?= h($old['qty']) ?>" required>
               <?php if (isset($errors['qty'])): ?>
-                <div class="error"><?= h($errors['qty']) ?></div><?php endif; ?>
+                <div class="error"><?= h($errors['qty']) ?></div>
+              <?php endif; ?>
+            </div>
+
+            <div class="section-header">Timeline</div>
+
+            <div class="field">
+              <label class="label" for="project_start">Project Start Date *</label>
+              <input class="input" id="project_start" name="project_start" type="date" value="<?= h($old['project_start']) ?>" required>
+              <?php if (isset($errors['project_start'])): ?>
+                <div class="error"><?= h($errors['project_start']) ?></div>
+              <?php endif; ?>
             </div>
 
             <div class="field">
-              <label class="label" for="date_pon">Date PON</label>
-              <input class="input" id="date_pon" name="date_pon" type="date" value="<?= h($old['date_pon']) ?>"
-                required>
+              <label class="label" for="date_pon">Date PON *</label>
+              <input class="input" id="date_pon" name="date_pon" type="date" value="<?= h($old['date_pon']) ?>" required>
               <?php if (isset($errors['date_pon'])): ?>
-                <div class="error"><?= h($errors['date_pon']) ?></div><?php endif; ?>
+                <div class="error"><?= h($errors['date_pon']) ?></div>
+              <?php endif; ?>
             </div>
 
             <div class="field">
               <label class="label" for="date_finish">Date Finish</label>
-              <input class="input" id="date_finish" name="date_finish" type="date"
-                value="<?= h($old['date_finish']) ?>">
+              <input class="input" id="date_finish" name="date_finish" type="date" value="<?= h($old['date_finish']) ?>">
               <?php if (isset($errors['date_finish'])): ?>
-                <div class="error"><?= h($errors['date_finish']) ?></div><?php endif; ?>
+                <div class="error"><?= h($errors['date_finish']) ?></div>
+              <?php endif; ?>
             </div>
 
             <div class="field">
               <label class="label" for="status">Status</label>
               <select class="select" id="status" name="status">
-                <?php foreach (['Selesai', 'Progres', 'Pending', 'Delayed'] as $st): ?>
+                <?php foreach (['Selesai', 'Progress', 'Pending', 'Delayed'] as $st): ?>
                   <option value="<?= h($st) ?>" <?= $old['status'] === $st ? 'selected' : '' ?>><?= h($st) ?></option>
                 <?php endforeach; ?>
               </select>
               <?php if (isset($errors['status'])): ?>
-                <div class="error"><?= h($errors['status']) ?></div><?php endif; ?>
-            </div>
-
-            <div class="field">
-              <label class="label" for="alamat_kontrak">Alamat Kontrak</label>
-              <textarea class="input" id="alamat_kontrak" name="alamat_kontrak" rows="3" required><?= h($old['alamat_kontrak']) ?></textarea>
-              <?php if (isset($errors['alamat_kontrak'])): ?>
-                <div class="error"><?= h($errors['alamat_kontrak']) ?></div><?php endif; ?>
-            </div>
-
-            <div class="field">
-              <label class="label" for="no_contract">No Contract</label>
-              <input class="input" id="no_contract" name="no_contract" type="text" value="<?= h($old['no_contract']) ?>" required>
-              <?php if (isset($errors['no_contract'])): ?>
-                <div class="error"><?= h($errors['no_contract']) ?></div><?php endif; ?>
-            </div>
-
-            <div class="field">
-              <label class="label" for="pic">PIC</label>
-              <input class="input" id="pic" name="pic" type="text" value="<?= h($old['pic']) ?>" required>
-              <?php if (isset($errors['pic'])): ?>
-                <div class="error"><?= h($errors['pic']) ?></div><?php endif; ?>
-            </div>
-
-            <div class="field">
-              <label class="label" for="owner">Owner</label>
-              <input class="input" id="owner" name="owner" type="text" value="<?= h($old['owner']) ?>" required>
-              <?php if (isset($errors['owner'])): ?>
-                <div class="error"><?= h($errors['owner']) ?></div><?php endif; ?>
+                <div class="error"><?= h($errors['status']) ?></div>
+              <?php endif; ?>
             </div>
 
             <div class="field" style="grid-column:1/-1">
               <div class="actions">
-                <button type="submit" class="btn">Update</button>
+                <button type="submit" class="btn">Update Project</button>
                 <a class="btn secondary" href="pon.php">Batal</a>
               </div>
             </div>
@@ -424,10 +656,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       </section>
     </main>
 
-    <footer class="footer">© <?= date('Y') ?> <?= h($appName) ?> • Edit PON</footer>
+    <footer class="footer">© <?= date('Y') ?> <?= h($appName) ?> • Edit Project</footer>
   </div>
 
   <script>
+    // Material selection functions
+    function toggleMaterialOptions() {
+      const options = document.getElementById('material_options');
+      options.classList.toggle('show');
+    }
+
+    function showCustomMaterialInput() {
+      document.getElementById('material_options').classList.remove('show');
+      document.getElementById('custom_material_container').classList.add('show');
+      document.getElementById('custom_material_input').focus();
+    }
+
+    function selectMaterial(materialName) {
+      document.getElementById('material_select').value = materialName;
+      document.getElementById('material_type').value = materialName;
+      document.getElementById('material_options').classList.remove('show');
+    }
+
+    function saveCustomMaterial() {
+      const customInput = document.getElementById('custom_material_input');
+      const materialName = customInput.value.trim();
+
+      if (materialName) {
+        document.getElementById('material_select').value = materialName;
+        document.getElementById('material_type').value = materialName;
+        document.getElementById('custom_material_container').classList.remove('show');
+        customInput.value = '';
+      }
+    }
+
+    function cancelCustomMaterial() {
+      document.getElementById('custom_material_container').classList.remove('show');
+      document.getElementById('custom_material_input').value = '';
+    }
+
+    // Close material options when clicking outside
+    document.addEventListener('click', function(event) {
+      const materialWrapper = document.querySelector('.material-select-wrapper');
+      const materialOptions = document.getElementById('material_options');
+
+      if (!materialWrapper.contains(event.target)) {
+        materialOptions.classList.remove('show');
+      }
+    });
+
+    // Clock functionality
     (function() {
       const el = document.getElementById('clock');
       if (!el) return;

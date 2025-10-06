@@ -16,6 +16,13 @@ $activeMenu = 'PON';
 $server = $_SERVER['SERVER_SOFTWARE'] ?? 'Apache';
 $nowEpoch = time();
 
+// Handle export requests
+if (isset($_GET['export'])) {
+  $exportType = $_GET['export'];
+  require_once 'pon_export.php';
+  exit;
+}
+
 // Handle delete request first
 if (isset($_GET['delete'])) {
   $delJobNo = $_GET['delete'];
@@ -36,28 +43,49 @@ $pons = fetchAll("
     ORDER BY project_start DESC, created_at DESC
 ");
 
-// Hitung total weight untuk setiap PON berdasarkan data fabrikasi + logistik workshop
-foreach ($pons as &$pon) {
-    $ponCode = $pon['pon'];
-    
-    // Total weight dari fabrikasi_items
-    $fabrikasiWeight = fetchOne("
-        SELECT COALESCE(SUM(total_weight_kg), 0) as total_weight 
-        FROM fabrikasi_items 
-        WHERE pon = ?
-    ", [$ponCode]);
-    
-    // Total weight dari logistik_workshop  
-    $logistikWeight = fetchOne("
-        SELECT COALESCE(SUM(total_weight_kg), 0) as total_weight 
-        FROM logistik_workshop 
-        WHERE pon = ?
-    ", [$ponCode]);
-    
-    // Total weight = fabrikasi + logistik workshop
-    $pon['berat_calculated'] = (float)$fabrikasiWeight['total_weight'] + (float)$logistikWeight['total_weight'];
+// OPTIMIZED: Hitung total weight dengan efficient queries
+try {
+  $ponCodes = array_column($pons, 'pon');
+  if (!empty($ponCodes)) {
+    $placeholders = str_repeat('?,', count($ponCodes) - 1) . '?';
+
+    // Single query untuk fabrikasi weights
+    $fabrikasiWeights = fetchAll("
+            SELECT pon, COALESCE(SUM(total_weight_kg), 0) as total_weight 
+            FROM fabrikasi_items 
+            WHERE pon IN ($placeholders)
+            GROUP BY pon
+        ", $ponCodes);
+
+    // Single query untuk logistik weights
+    $logistikWeights = fetchAll("
+            SELECT pon, COALESCE(SUM(total_weight_kg), 0) as total_weight 
+            FROM logistik_workshop 
+            WHERE pon IN ($placeholders)
+            GROUP BY pon
+        ", $ponCodes);
+
+    // Convert to associative arrays untuk fast lookup
+    $fabrikasiMap = array_column($fabrikasiWeights, 'total_weight', 'pon');
+    $logistikMap = array_column($logistikWeights, 'total_weight', 'pon');
+
+    // Hitung berat tanpa query dalam loop
+    foreach ($pons as &$pon) {
+      $ponCode = $pon['pon'];
+      $fabWeight = $fabrikasiMap[$ponCode] ?? 0;
+      $logWeight = $logistikMap[$ponCode] ?? 0;
+      $pon['berat_calculated'] = (float)$fabWeight + (float)$logWeight;
+    }
+    unset($pon);
+  }
+} catch (Exception $e) {
+  error_log("Weight calculation error: " . $e->getMessage());
+  // Fallback
+  foreach ($pons as &$pon) {
+    $pon['berat_calculated'] = 0;
+  }
+  unset($pon);
 }
-unset($pon); // Hapus reference
 
 // Hitung statistics
 $totalBerat = array_sum(array_map(fn($r) => (float) $r['berat_calculated'], $pons));
@@ -78,23 +106,60 @@ foreach ($pons as $pon) {
   }
 }
 
-// Data untuk charts
-$monthlyData = [];
-$statusData = [
-  ['name' => 'In Progress', 'value' => $statusCounts['Progress'], 'color' => '#f59e0b'],
-  ['name' => 'Completed', 'value' => $statusCounts['Selesai'], 'color' => '#10b981'],
-  ['name' => 'Pending', 'value' => $statusCounts['Pending'], 'color' => '#6b7280'],
-  ['name' => 'Delayed', 'value' => $statusCounts['Delayed'], 'color' => '#ef4444']
+// DYNAMIC Material distribution - TAMPILKAN SEMUA MATERIAL
+$materialData = [];
+$materialLabels = [];
+$materialColors = [];
+
+// Color palette yang lebih banyak untuk berbagai material
+$colorPalette = [
+  '#3b82f6',
+  '#8b5cf6',
+  '#06b6d4',
+  '#f59e0b',
+  '#10b981',
+  '#ef4444',
+  '#84cc16',
+  '#f97316',
+  '#a855f7',
+  '#ec4899',
+  '#14b8a6',
+  '#f43f5e',
+  '#eab308',
+  '#22c55e',
+  '#06b6d4'
 ];
 
-// Material distribution
-$materialData = [];
+// Kumpulkan semua material yang unik
 foreach ($pons as $pon) {
-  $material = $pon['material_type'];
+  $material = $pon['material_type'] ?: 'Unknown';
   if (!isset($materialData[$material])) {
     $materialData[$material] = 0;
   }
   $materialData[$material]++;
+}
+
+// Urutkan berdasarkan jumlah project (descending) dan ambil top 10 untuk menghindari overcrowding
+arsort($materialData);
+$topMaterials = array_slice($materialData, 0, 10, true);
+
+// Siapkan labels dan colors
+foreach ($topMaterials as $material => $count) {
+  $materialLabels[] = $material;
+  $materialColors[] = $colorPalette[count($materialLabels) % count($colorPalette)];
+}
+
+// Hitung "Others" jika ada lebih dari 10 material
+$otherCount = 0;
+if (count($materialData) > 10) {
+  $otherMaterials = array_slice($materialData, 10, null, true);
+  $otherCount = array_sum($otherMaterials);
+
+  if ($otherCount > 0) {
+    $materialLabels[] = 'Lainnya';
+    $materialColors[] = '#6b7280'; // Gray color for Others
+    $topMaterials['Lainnya'] = $otherCount;
+  }
 }
 
 // Helper function untuk progress color
@@ -191,6 +256,26 @@ function formatDate($date)
       background: rgba(255, 255, 255, 0.05);
     }
 
+    .btn-success {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #059669;
+      border: 1px solid #10b981;
+      color: #fff;
+      text-decoration: none;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+
+    .btn-success:hover {
+      background: #047857;
+      transform: translateY(-1px);
+    }
+
     .btn-danger {
       background: #dc2626;
       border-color: #ef4444;
@@ -229,6 +314,86 @@ function formatDate($date)
       display: flex;
       gap: 6px;
       flex-wrap: wrap;
+    }
+
+    /* Export Dropdown Styles */
+    .export-dropdown {
+      position: relative;
+      display: inline-block;
+    }
+
+    .export-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #059669;
+      border: 1px solid #10b981;
+      color: #fff;
+      text-decoration: none;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .export-btn:hover {
+      background: #047857;
+    }
+
+    .export-dropdown-content {
+      display: none;
+      position: absolute;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      min-width: 160px;
+      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+      z-index: 1000;
+      margin-top: 5px;
+      overflow: hidden;
+    }
+
+    .export-dropdown-content.show {
+      display: block;
+      animation: fadeIn 0.2s ease;
+    }
+
+    .export-option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      color: var(--text);
+      text-decoration: none;
+      transition: background 0.2s;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .export-option:last-child {
+      border-bottom: none;
+    }
+
+    .export-option:hover {
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .export-option i {
+      font-size: 14px;
+      width: 16px;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
 
     /* Enhanced Table Styles */
@@ -690,9 +855,28 @@ function formatDate($date)
           <div style="display: flex; justify-content: between; align-items: center;">
             <span>PROJECT LIST</span>
             <div style="display: flex; gap: 12px; align-items: center;">
-              <a href="#" class="btn-secondary">
-                <i class="bi bi-download"></i> Export CSV
-              </a>
+              <!-- Export Dropdown -->
+              <div class="export-dropdown">
+                <button class="export-btn" onclick="toggleExportDropdown()">
+                  <i class="bi bi-download"></i> Export Data
+                  <i class="bi bi-chevron-down" style="font-size: 12px; margin-left: 4px;"></i>
+                </button>
+                <div class="export-dropdown-content" id="exportDropdown">
+                  <a href="pon.php?export=excel" class="export-option" onclick="showExportLoading('Excel')">
+                    <i class="bi bi-file-earmark-excel" style="color: #21a366;"></i>
+                    Export Excel (.xlsx)
+                  </a>
+                  <a href="pon.php?export=pdf" class="export-option" onclick="showExportLoading('PDF')">
+                    <i class="bi bi-file-earmark-pdf" style="color: #f40f02;"></i>
+                    Export PDF (.pdf)
+                  </a>
+                  <a href="pon.php?export=csv" class="export-option" onclick="showExportLoading('CSV')">
+                    <i class="bi bi-file-earmark-text" style="color: #10b981;"></i>
+                    Export CSV (.csv)
+                  </a>
+                </div>
+              </div>
+
               <a href="pon_new.php" class="btn-primary">
                 <i class="bi bi-plus-circle"></i> New Project
               </a>
@@ -885,6 +1069,27 @@ function formatDate($date)
     <footer class="footer">© <?= date('Y') ?> <?= h($appName) ?> • Project Management</footer>
   </div>
 
+  <!-- Export Loading Modal -->
+  <div id="exportLoading" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 9999; justify-content: center; align-items: center;">
+    <div style="background: var(--card-bg); padding: 30px; border-radius: 12px; text-align: center; border: 1px solid var(--border);">
+      <div class="spinner" style="border: 4px solid var(--border); border-top: 4px solid #3b82f6; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 20px;"></div>
+      <h3 style="color: var(--text); margin-bottom: 10px;">Preparing Export</h3>
+      <p style="color: var(--muted);" id="exportMessage">Mempersiapkan file untuk diunduh...</p>
+    </div>
+  </div>
+
+  <style>
+    @keyframes spin {
+      0% {
+        transform: rotate(0deg);
+      }
+
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+  </style>
+
   <script>
     // Clock functionality
     (function() {
@@ -913,6 +1118,40 @@ function formatDate($date)
         tr.style.display = text.includes(q) ? '' : 'none';
       });
     }
+
+    // Export Dropdown functionality
+    function toggleExportDropdown() {
+      const dropdown = document.getElementById('exportDropdown');
+      dropdown.classList.toggle('show');
+    }
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', function(event) {
+      const dropdown = document.getElementById('exportDropdown');
+      const exportBtn = document.querySelector('.export-btn');
+
+      if (!exportBtn.contains(event.target) && !dropdown.contains(event.target)) {
+        dropdown.classList.remove('show');
+      }
+    });
+
+    // Show export loading
+    function showExportLoading(format) {
+      const modal = document.getElementById('exportLoading');
+      const message = document.getElementById('exportMessage');
+      message.textContent = `Mempersiapkan file ${format} untuk diunduh...`;
+      modal.style.display = 'flex';
+
+      // Auto hide after 5 seconds (in case something goes wrong)
+      setTimeout(() => {
+        modal.style.display = 'none';
+      }, 5000);
+    }
+
+    // Hide loading when page is about to unload (export starting)
+    window.addEventListener('beforeunload', function() {
+      document.getElementById('exportLoading').style.display = 'none';
+    });
 
     // Charts
     document.addEventListener('DOMContentLoaded', function() {
@@ -946,20 +1185,16 @@ function formatDate($date)
         }
       });
 
-      // Material Distribution Chart
+      // Material Distribution Chart - DYNAMIC
       const materialCtx = document.getElementById('materialChart').getContext('2d');
       const materialChart = new Chart(materialCtx, {
         type: 'bar',
         data: {
-          labels: ['AG25', 'AG32', 'AG50'],
+          labels: <?= json_encode($materialLabels) ?>,
           datasets: [{
-            label: 'Projects',
-            data: [
-              <?= $materialData['AG25'] ?? 0 ?>,
-              <?= $materialData['AG32'] ?? 0 ?>,
-              <?= $materialData['AG50'] ?? 0 ?>
-            ],
-            backgroundColor: ['#3b82f6', '#8b5cf6', '#06b6d4'],
+            label: 'Jumlah Project',
+            data: <?= json_encode(array_values($topMaterials)) ?>,
+            backgroundColor: <?= json_encode($materialColors) ?>,
             borderWidth: 0,
             borderRadius: 4,
           }]
@@ -970,6 +1205,13 @@ function formatDate($date)
           plugins: {
             legend: {
               display: false
+            },
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  return `${context.dataset.label}: ${context.parsed.y}`;
+                }
+              }
             }
           },
           scales: {
@@ -979,6 +1221,14 @@ function formatDate($date)
                 color: 'rgba(255, 255, 255, 0.1)'
               },
               ticks: {
+                color: '#94a3b8',
+                callback: function(value) {
+                  return value; // Tampilkan angka asli
+                }
+              },
+              title: {
+                display: true,
+                text: 'Jumlah Project',
                 color: '#94a3b8'
               }
             },
@@ -987,6 +1237,13 @@ function formatDate($date)
                 display: false
               },
               ticks: {
+                color: '#94a3b8',
+                maxRotation: 45,
+                minRotation: 45
+              },
+              title: {
+                display: true,
+                text: 'Jenis Material',
                 color: '#94a3b8'
               }
             }
