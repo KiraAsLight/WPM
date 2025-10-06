@@ -31,7 +31,6 @@ if (!$ponRecord) {
 }
 
 // Get all workshop items
-// $items = fetchAll('SELECT * FROM logistik_workshop WHERE pon = ? ORDER BY no ASC', [$ponCode]);
 $items = fetchAll('
     SELECT lw.*, v.name as vendor_name 
     FROM logistik_workshop lw 
@@ -78,7 +77,43 @@ $totalQty = array_sum(array_column($items, 'qty'));
     <link rel="stylesheet" href="assets/css/sidebar.css?v=<?= filemtime('assets/css/sidebar.css') ?>">
     <link rel="stylesheet" href="assets/css/layout.css?v=<?= filemtime('assets/css/layout.css') ?>">
     <style>
+        /* Layout Grid - Full Viewport Height */
+        .layout {
+            display: grid;
+            grid-template-areas:
+                "sidebar header"
+                "sidebar content"
+                "sidebar footer";
+            grid-template-columns: 260px 1fr;
+            grid-template-rows: auto 1fr auto;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            grid-area: sidebar;
+            overflow-y: auto;
+        }
+
+        .header {
+            grid-area: header;
+        }
+
+        .content {
+            grid-area: content;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            padding: 24px;
+        }
+
+        .footer {
+            grid-area: footer;
+        }
+
+        /* Page Header */
         .page-header {
+            flex-shrink: 0;
             background: var(--card-bg);
             border: 1px solid var(--border);
             border-radius: 12px;
@@ -157,17 +192,13 @@ $totalQty = array_sum(array_column($items, 'qty'));
             background: #047857;
         }
 
+        /* Stats Grid */
         .stats-grid {
+            flex-shrink: 0;
             display: grid;
             grid-template-columns: repeat(4, 1fr);
             gap: 16px;
             margin-bottom: 24px;
-        }
-
-        @media (max-width: 768px) {
-            .stats-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
         }
 
         .stat-card {
@@ -191,7 +222,9 @@ $totalQty = array_sum(array_column($items, 'qty'));
             font-weight: 500;
         }
 
+        /* Success Message */
         .success-msg {
+            flex-shrink: 0;
             background: rgba(34, 197, 94, 0.1);
             border: 1px solid rgba(34, 197, 94, 0.3);
             color: #86efac;
@@ -203,14 +236,20 @@ $totalQty = array_sum(array_column($items, 'qty'));
             gap: 8px;
         }
 
+        /* Table Section - Flex Grow */
         .table-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
             background: var(--card-bg);
             border: 1px solid var(--border);
             border-radius: 12px;
             overflow: hidden;
+            min-height: 0;
         }
 
         .section-header-bar {
+            flex-shrink: 0;
             background: #2d3748;
             padding: 16px 24px;
             display: flex;
@@ -225,154 +264,180 @@ $totalQty = array_sum(array_column($items, 'qty'));
             color: var(--text);
         }
 
-        /* 1. PERBAIKAN: Container tabel dengan scrolling yang lebih jelas */
+        /* Table Container - Scrollable */
         .table-container {
+            flex: 1;
             overflow: auto;
-            max-height: 600px;
-            /* Sesuaikan tinggi sesuai kebutuhan */
             position: relative;
-            /* Tambahan untuk memastikan scrollbar selalu terlihat */
-            overflow-x: auto;
-            overflow-y: auto;
+            min-height: 0;
         }
 
-        /* 2. Header table tetap di atas saat scroll (sticky) */
+        /* Data Table */
+        .data-table {
+            width: auto;
+            min-width: 100%;
+            border-collapse: collapse;
+            table-layout: auto;
+        }
+
         .data-table thead {
             background: #374151;
             position: sticky;
             top: 0;
             z-index: 10;
-            /* Tambahan untuk shadow saat scroll */
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
         }
 
-        .data-table thead th {
+        .data-table th {
+            padding: 12px 16px;
+            text-align: center;
+            color: var(--muted);
+            font-weight: 600;
+            font-size: 11px;
+            text-transform: uppercase;
+            border-bottom: 1px solid var(--border);
+            border-right: 1px solid rgba(255, 255, 255, 0.05);
+            white-space: nowrap;
+            vertical-align: middle;
             background: #374151;
-            /* Pastikan background konsisten */
         }
 
-        /* 3. SCROLLBAR VERTIKAL - Lebih Jelas & Terlihat */
+        .data-table th:last-child {
+            border-right: none;
+        }
+
+        .data-table td {
+            padding: 10px 16px;
+            color: var(--text);
+            font-size: 12px;
+            border-bottom: 1px solid var(--border);
+            border-right: 1px solid rgba(255, 255, 255, 0.05);
+            vertical-align: middle;
+            white-space: nowrap;
+        }
+
+        .data-table td:last-child {
+            border-right: none;
+        }
+
+        .data-table tbody tr:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        /* Column Specific Widths */
+        .data-table th:nth-child(1),
+        .data-table td:nth-child(1) {
+            width: 50px;
+            min-width: 50px;
+            text-align: center;
+        }
+
+        .data-table td:nth-child(2) {
+            max-width: 250px;
+            white-space: normal;
+            word-wrap: break-word;
+            text-align: left;
+        }
+
+        .data-table td:nth-child(3) {
+            max-width: 120px;
+            text-align: center;
+        }
+
+        .data-table td:nth-child(4) {
+            text-align: center;
+            min-width: 70px;
+        }
+
+        .data-table td:nth-child(5) {
+            white-space: nowrap;
+            min-width: 120px;
+            text-align: center;
+        }
+
+        .data-table td:nth-child(6),
+        .data-table td:nth-child(7),
+        .data-table td:nth-child(8) {
+            text-align: right;
+            min-width: 80px;
+        }
+
+        .data-table td:nth-child(9) {
+            max-width: 150px;
+            white-space: normal;
+            text-align: left;
+        }
+
+        .data-table td:nth-child(10),
+        .data-table td:nth-child(11) {
+            min-width: 100px;
+            text-align: center;
+        }
+
+        .data-table td:nth-child(12),
+        .data-table td:nth-child(13) {
+            min-width: 70px;
+            text-align: center;
+        }
+
+        .data-table td:nth-child(14) {
+            max-width: 200px;
+            white-space: normal;
+            text-align: left;
+        }
+
+        .data-table td:nth-child(15) {
+            width: 130px;
+            min-width: 130px;
+            text-align: center;
+        }
+
+        .data-table td:nth-child(16) {
+            width: 110px;
+            min-width: 110px;
+            text-align: center;
+        }
+
+        .data-table td:nth-child(17) {
+            width: 90px;
+            min-width: 90px;
+            text-align: center;
+        }
+
+        /* Scrollbar Styling */
         .table-container::-webkit-scrollbar {
             width: 12px;
-            /* Lebih lebar dari sebelumnya (8px -> 12px) */
             height: 12px;
-            /* Untuk scrollbar horizontal */
         }
 
         .table-container::-webkit-scrollbar-track {
             background: rgba(255, 255, 255, 0.08);
-            /* Lebih terang */
             border-radius: 6px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
         }
 
         .table-container::-webkit-scrollbar-thumb {
             background: rgba(59, 130, 246, 0.6);
-            /* Warna biru lebih solid */
             border-radius: 6px;
-            border: 2px solid rgba(255, 255, 255, 0.08);
-            /* Tambahan hover effect yang lebih smooth */
         }
 
         .table-container::-webkit-scrollbar-thumb:hover {
             background: rgba(59, 130, 246, 0.9);
-            /* Lebih terang saat hover */
-            cursor: pointer;
-        }
-
-        .table-container::-webkit-scrollbar-thumb:active {
-            background: rgba(37, 99, 235, 1);
-            /* Solid saat diklik */
         }
 
         .table-container::-webkit-scrollbar-corner {
             background: rgba(255, 255, 255, 0.08);
         }
 
-        /* 4. FIREFOX SUPPORT - Scrollbar lebih terlihat */
         .table-container {
             scrollbar-width: auto;
-            /* Ubah dari 'thin' ke 'auto' agar lebih jelas */
             scrollbar-color: rgba(59, 130, 246, 0.6) rgba(255, 255, 255, 0.08);
         }
 
-        /* 5. OPTIONAL: Tambahan indikator bahwa tabel bisa di-scroll */
-        .table-section {
-            position: relative;
-        }
-
-        /* Indikator gradient di bawah header untuk menunjukkan ada konten di bawah */
-        .table-container::before {
-            content: '';
-            position: sticky;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 4px;
-            background: linear-gradient(to bottom, rgba(0, 0, 0, 0.3), transparent);
-            z-index: 9;
-            pointer-events: none;
-        }
-
-        /* 6. OPTIONAL: Indikator scroll di kanan untuk menunjukkan masih ada konten */
-        .table-container::after {
-            content: '↓';
-            position: sticky;
-            bottom: 0;
-            right: 20px;
-            width: 30px;
-            height: 30px;
-            background: rgba(59, 130, 246, 0.8);
-            color: white;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 16px;
-            opacity: 0;
-            transition: opacity 0.3s;
-            pointer-events: none;
-            z-index: 20;
-            margin-left: auto;
-        }
-
-        /* 7. PERBAIKAN UNTUK MOBILE - Scrollbar tetap terlihat di mobile */
-        @media (max-width: 768px) {
-            .table-container {
-                max-height: 500px;
-                /* Lebih pendek di mobile */
-            }
-
-            /* Di mobile, scrollbar mungkin tidak terlihat, jadi kita beri hint visual */
-            .table-section::after {
-                content: 'Geser untuk melihat lebih banyak ⟷';
-                display: block;
-                text-align: center;
-                padding: 8px;
-                background: rgba(59, 130, 246, 0.2);
-                color: #93c5fd;
-                font-size: 11px;
-                border-top: 1px solid rgba(59, 130, 246, 0.3);
-            }
-        }
-
-        /* 8. ALTERNATIF: Jika ingin scrollbar SELALU terlihat (bahkan saat tidak hover) */
-        .table-container::-webkit-scrollbar-thumb {
-            background: rgba(59, 130, 246, 0.5);
-            /* Selalu terlihat dengan opacity 50% */
-        }
-
-        /* 9. PERBAIKAN: Pastikan table tidak overflow ke samping */
-        .data-table {
-            width: 100%;
-            border-collapse: collapse;
-            /* Min-width sudah ada di kode asli, ini bagus */
-        }
-
+        /* Action Buttons */
         .action-btns {
-            justify-content: center;
             display: flex;
             gap: 6px;
+            justify-content: center;
         }
 
         .btn-icon {
@@ -405,8 +470,13 @@ $totalQty = array_sum(array_column($items, 'qty'));
             color: #fca5a5;
         }
 
+        /* Empty State */
         .empty-state {
-            text-align: center;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
             padding: 60px 20px;
             color: var(--muted);
         }
@@ -421,14 +491,7 @@ $totalQty = array_sum(array_column($items, 'qty'));
             margin-bottom: 20px;
         }
 
-        .text-right {
-            text-align: right;
-        }
-
-        .text-center {
-            text-align: center;
-        }
-
+        /* Progress Bar */
         .progress-bar-container {
             width: 80px;
             height: 6px;
@@ -446,6 +509,7 @@ $totalQty = array_sum(array_column($items, 'qty'));
             transition: width 0.3s ease;
         }
 
+        /* Status Badges */
         .status-badge {
             padding: 4px 8px;
             border-radius: 4px;
@@ -480,24 +544,6 @@ $totalQty = array_sum(array_column($items, 'qty'));
             color: #86efac;
         }
 
-        .remarks-badge {
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 10px;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-
-        .remarks-terkirim {
-            background: rgba(34, 197, 94, 0.2);
-            color: #86efac;
-        }
-
-        .remarks-belum-terkirim {
-            background: rgba(239, 68, 68, 0.2);
-            color: #fca5a5;
-        }
-
         .status-terkirim {
             background: rgba(34, 197, 94, 0.2);
             color: #86efac;
@@ -506,6 +552,46 @@ $totalQty = array_sum(array_column($items, 'qty'));
         .status-belum-terkirim {
             background: rgba(239, 68, 68, 0.2);
             color: #fca5a5;
+        }
+
+        /* Text Alignment */
+        .text-left {
+            text-align: left !important;
+        }
+
+        .text-center {
+            text-align: center !important;
+        }
+
+        .text-right {
+            text-align: right !important;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .page-header {
+                flex-direction: column;
+                gap: 16px;
+                align-items: stretch;
+            }
+
+            .header-left {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .header-actions {
+                flex-direction: column;
+            }
+
+            .header-actions .btn {
+                width: 100%;
+                justify-content: center;
+            }
         }
     </style>
 </head>
@@ -607,26 +693,25 @@ $totalQty = array_sum(array_column($items, 'qty'));
                         </a>
                     </div>
                 <?php else: ?>
-                    <!-- PERBAIKAN: Table container dengan scrolling -->
                     <div class="table-container">
                         <table class="data-table">
                             <thead>
                                 <tr>
-                                    <th class="text-center">No</th>
+                                    <th>No</th>
                                     <th>Nama Parts</th>
                                     <th>Marking</th>
-                                    <th class="text-center">QTY<br>(Pcs)</th>
+                                    <th>QTY<br>(Pcs)</th>
                                     <th>Dimensions<br>(mm)</th>
-                                    <th class="text-right">Length<br>(mm)</th>
-                                    <th class="text-right">Unit Weight<br>(Kg/Pc)</th>
-                                    <th class="text-right">Total Weight<br>(Kg)</th>
+                                    <th>Length<br>(mm)</th>
+                                    <th>Unit Weight<br>(Kg/Pc)</th>
+                                    <th>Total Weight<br>(Kg)</th>
                                     <th>Vendor</th>
                                     <th>Surat Jalan<br>Tanggal</th>
                                     <th>Surat Jalan<br>Nomor</th>
-                                    <th class="text-center">Ready<br>CGI</th>
-                                    <th class="text-center">O/S<br>DHJ</th>
+                                    <th>Ready<br>CGI</th>
+                                    <th>O/S<br>DHJ</th>
                                     <th>Remarks</th>
-                                    <th class="text-center">Progress</th>
+                                    <th>Progress</th>
                                     <th>Status</th>
                                     <th>Aksi</th>
                                 </tr>
@@ -634,21 +719,21 @@ $totalQty = array_sum(array_column($items, 'qty'));
                             <tbody>
                                 <?php foreach ($items as $item): ?>
                                     <tr>
-                                        <td class="text-center"><?= h($item['no']) ?></td>
-                                        <td style="text-align: left;"><?= h($item['nama_parts']) ?></td>
+                                        <td><?= h($item['no']) ?></td>
+                                        <td><?= h($item['nama_parts']) ?></td>
                                         <td><?= h($item['marking']) ?></td>
-                                        <td class="text-center"><?= h($item['qty']) ?></td>
+                                        <td><?= h($item['qty']) ?></td>
                                         <td><?= h($item['dimensions']) ?></td>
-                                        <td class="text-right"><?= number_format((float)$item['length_mm'], 2) ?></td>
-                                        <td class="text-right"><?= number_format((float)$item['unit_weight_kg'], 2) ?></td>
-                                        <td class="text-right"><?= number_format((float)$item['total_weight_kg'], 2) ?></td>
+                                        <td><?= number_format((float)$item['length_mm'], 2) ?></td>
+                                        <td><?= number_format((float)$item['unit_weight_kg'], 2) ?></td>
+                                        <td><?= number_format((float)$item['total_weight_kg'], 2) ?></td>
                                         <td><?= h($item['vendor_name']) ?></td>
                                         <td><?= $item['surat_jalan_tanggal'] ? h(dmy($item['surat_jalan_tanggal'])) : '-' ?></td>
                                         <td><?= h($item['surat_jalan_nomor']) ?: '-' ?></td>
-                                        <td class="text-center"><?= h($item['ready_cgi']) ?></td>
-                                        <td class="text-center"><?= h($item['os_dhj']) ?></td>
+                                        <td><?= h($item['ready_cgi']) ?></td>
+                                        <td><?= h($item['os_dhj']) ?></td>
                                         <td><?= h($item['remarks']) ?></td>
-                                        <td class="text-center">
+                                        <td>
                                             <div style="display: flex; align-items: center; gap: 8px; justify-content: center;">
                                                 <div class="progress-bar-container">
                                                     <div class="progress-bar-fill" style="width: <?= (int)$item['progress'] ?>%"></div>
@@ -661,7 +746,7 @@ $totalQty = array_sum(array_column($items, 'qty'));
                                                 <?= h($item['status']) ?>
                                             </span>
                                         </td>
-                                        <td class="text-center">
+                                        <td>
                                             <div class="action-btns">
                                                 <a href="logistik_workshop_edit.php?id=<?= $item['id'] ?>&pon=<?= urlencode($ponCode) ?>"
                                                     class="btn-icon edit"

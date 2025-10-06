@@ -58,14 +58,14 @@ if (isset($_GET['added'])) {
     $successMsg = 'Item site berhasil diupdate dari data workshop!';
 }
 
-// ✅ FUNCTION: Calculate Progress berdasarkan logic yang diminta
+// Function: Calculate Progress berdasarkan logic yang diminta
 function calculateSiteProgress($sentQty, $qty, $status)
 {
-    // ✅ Progress 100% jika sent_to_site_qty = qty DAN status = "Diterima"
+    // Progress 100% jika sent_to_site_qty = qty DAN status = "Diterima"
     if ($status === 'Diterima' && $sentQty == $qty) {
         return 100;
     }
-    // ✅ Progress tidak mencapai 100% jika sent_to_site_qty < qty DAN status = "Menunggu"
+    // Progress tidak mencapai 100% jika sent_to_site_qty < qty DAN status = "Menunggu"
     else {
         return $qty > 0 ? (int)round(($sentQty / $qty) * 100) : 0;
     }
@@ -98,7 +98,7 @@ foreach ($items as $item) {
         $totalDiterima++;
     }
 
-    // ✅ Update progress di database berdasarkan logic baru (jika berbeda)
+    // Update progress di database berdasarkan logic baru (jika berbeda)
     $calculatedProgress = calculateSiteProgress($sentQty, $qty, $status);
     $currentProgress = (int)($item['progress'] ?? 0);
 
@@ -111,12 +111,6 @@ foreach ($items as $item) {
             ['id' => $item['id']]
         );
     }
-}
-
-// DEBUG: Cek data pertama untuk memastikan struktur benar
-if (!empty($items)) {
-    error_log("DEBUG - First item data: " . print_r($items[0], true));
-    error_log("DEBUG - Total Sent Weight: " . $totalSentWeight);
 }
 ?>
 <!DOCTYPE html>
@@ -131,7 +125,43 @@ if (!empty($items)) {
     <link rel="stylesheet" href="assets/css/sidebar.css?v=<?= filemtime('assets/css/sidebar.css') ?>">
     <link rel="stylesheet" href="assets/css/layout.css?v=<?= filemtime('assets/css/layout.css') ?>">
     <style>
+        /* Layout Grid - Full Viewport Height */
+        .layout {
+            display: grid;
+            grid-template-areas:
+                "sidebar header"
+                "sidebar content"
+                "sidebar footer";
+            grid-template-columns: 260px 1fr;
+            grid-template-rows: auto 1fr auto;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            grid-area: sidebar;
+            overflow-y: auto;
+        }
+
+        .header {
+            grid-area: header;
+        }
+
+        .content {
+            grid-area: content;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            padding: 24px;
+        }
+
+        .footer {
+            grid-area: footer;
+        }
+
+        /* Page Header */
         .page-header {
+            flex-shrink: 0;
             background: var(--card-bg);
             border: 1px solid var(--border);
             border-radius: 12px;
@@ -210,17 +240,13 @@ if (!empty($items)) {
             background: #047857;
         }
 
+        /* Stats Grid */
         .stats-grid {
+            flex-shrink: 0;
             display: grid;
             grid-template-columns: repeat(4, 1fr);
             gap: 16px;
             margin-bottom: 24px;
-        }
-
-        @media (max-width: 768px) {
-            .stats-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
         }
 
         .stat-card {
@@ -244,7 +270,9 @@ if (!empty($items)) {
             font-weight: 500;
         }
 
+        /* Success Message */
         .success-msg {
+            flex-shrink: 0;
             background: rgba(34, 197, 94, 0.1);
             border: 1px solid rgba(34, 197, 94, 0.3);
             color: #86efac;
@@ -256,14 +284,20 @@ if (!empty($items)) {
             gap: 8px;
         }
 
+        /* Table Section - Flex Grow */
         .table-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
             background: var(--card-bg);
             border: 1px solid var(--border);
             border-radius: 12px;
             overflow: hidden;
+            min-height: 0;
         }
 
         .section-header-bar {
+            flex-shrink: 0;
             background: #2d3748;
             padding: 16px 24px;
             display: flex;
@@ -278,86 +312,166 @@ if (!empty($items)) {
             color: var(--text);
         }
 
-        /* PERBAIKAN: Container tabel dengan fixed height dan scrolling */
+        /* Table Container - Scrollable */
         .table-container {
+            flex: 1;
             overflow: auto;
-            max-height: 600px;
             position: relative;
+            min-height: 0;
         }
 
-        /* Header table tetap di atas saat scroll */
+        /* Data Table */
+        .data-table {
+            width: auto;
+            min-width: 100%;
+            border-collapse: collapse;
+            table-layout: auto;
+        }
+
         .data-table thead {
             background: #374151;
             position: sticky;
             top: 0;
             z-index: 10;
-        }
-
-        .data-table {
-            width: 100%;
-            min-width: 1400px;
-            border-collapse: collapse;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
         }
 
         .data-table th {
-            padding: 10px 12px;
+            padding: 12px 16px;
             text-align: center;
             color: var(--muted);
             font-weight: 600;
-            font-size: 10px;
+            font-size: 11px;
             text-transform: uppercase;
             border-bottom: 1px solid var(--border);
+            border-right: 1px solid rgba(255, 255, 255, 0.05);
             white-space: nowrap;
             vertical-align: middle;
             background: #374151;
         }
 
+        .data-table th:last-child {
+            border-right: none;
+        }
+
         .data-table td {
-            padding: 10px 12px;
+            padding: 10px 16px;
             color: var(--text);
             font-size: 12px;
             border-bottom: 1px solid var(--border);
+            border-right: 1px solid rgba(255, 255, 255, 0.05);
             vertical-align: middle;
             white-space: nowrap;
         }
 
-        .data-table tbody tr:hover {
-            background: rgba(255, 255, 255, 0.02);
+        .data-table td:last-child {
+            border-right: none;
         }
 
-        /* Custom Scrollbar Styling */
+        .data-table tbody tr:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        /* Column Specific Widths */
+        .data-table th:nth-child(1),
+        .data-table td:nth-child(1) {
+            width: 50px;
+            min-width: 50px;
+            text-align: center;
+        }
+
+        .data-table td:nth-child(2) {
+            max-width: 250px;
+            white-space: normal;
+            word-wrap: break-word;
+            text-align: left;
+        }
+
+        .data-table td:nth-child(3) {
+            max-width: 120px;
+            text-align: center;
+        }
+
+        .data-table td:nth-child(4) {
+            text-align: center;
+            min-width: 70px;
+        }
+
+        .data-table td:nth-child(5) {
+            min-width: 130px;
+            text-align: center;
+        }
+
+        .data-table td:nth-child(6) {
+            min-width: 100px;
+            text-align: center;
+        }
+
+        .data-table td:nth-child(7) {
+            width: 60px;
+            min-width: 60px;
+            text-align: center;
+        }
+
+        .data-table td:nth-child(8),
+        .data-table td:nth-child(9) {
+            max-width: 200px;
+            white-space: normal;
+            text-align: left;
+        }
+
+        .data-table td:nth-child(10) {
+            width: 130px;
+            min-width: 130px;
+            text-align: center;
+        }
+
+        .data-table td:nth-child(11) {
+            width: 110px;
+            min-width: 110px;
+            text-align: center;
+        }
+
+        .data-table td:nth-child(12) {
+            width: 90px;
+            min-width: 90px;
+            text-align: center;
+        }
+
+        /* Scrollbar Styling */
         .table-container::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
+            width: 12px;
+            height: 12px;
         }
 
         .table-container::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 6px;
         }
 
         .table-container::-webkit-scrollbar-thumb {
-            background: rgba(147, 197, 253, 0.3);
-            border-radius: 4px;
+            background: rgba(59, 130, 246, 0.6);
+            border-radius: 6px;
         }
 
         .table-container::-webkit-scrollbar-thumb:hover {
-            background: rgba(147, 197, 253, 0.5);
+            background: rgba(59, 130, 246, 0.9);
         }
 
         .table-container::-webkit-scrollbar-corner {
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(255, 255, 255, 0.08);
         }
 
-        /* Untuk browser Firefox */
         .table-container {
-            scrollbar-width: thin;
-            scrollbar-color: rgba(147, 197, 253, 0.3) rgba(255, 255, 255, 0.05);
+            scrollbar-width: auto;
+            scrollbar-color: rgba(59, 130, 246, 0.6) rgba(255, 255, 255, 0.08);
         }
 
+        /* Action Buttons */
         .action-btns {
             display: flex;
             gap: 6px;
+            justify-content: center;
         }
 
         .btn-icon {
@@ -390,8 +504,13 @@ if (!empty($items)) {
             color: #fca5a5;
         }
 
+        /* Empty State */
         .empty-state {
-            text-align: center;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
             padding: 60px 20px;
             color: var(--muted);
         }
@@ -406,14 +525,7 @@ if (!empty($items)) {
             margin-bottom: 20px;
         }
 
-        .text-right {
-            text-align: right;
-        }
-
-        .text-center {
-            text-align: center;
-        }
-
+        /* Progress Bar */
         .progress-bar-container {
             width: 80px;
             height: 6px;
@@ -426,11 +538,23 @@ if (!empty($items)) {
 
         .progress-bar-fill {
             height: 100%;
-            background: linear-gradient(90deg, #3b82f6, #06b6d4);
             border-radius: 3px;
             transition: width 0.3s ease;
         }
 
+        .progress-complete {
+            background: linear-gradient(90deg, #10b981, #059669);
+        }
+
+        .progress-partial {
+            background: linear-gradient(90deg, #3b82f6, #06b6d4);
+        }
+
+        .progress-waiting {
+            background: linear-gradient(90deg, #f59e0b, #d97706);
+        }
+
+        /* Status Badges */
         .status-badge {
             padding: 4px 8px;
             border-radius: 4px;
@@ -440,6 +564,37 @@ if (!empty($items)) {
             white-space: nowrap;
         }
 
+        .status-diterima {
+            background: rgba(34, 197, 94, 0.2);
+            color: #86efac;
+        }
+
+        .status-menunggu {
+            background: rgba(245, 158, 11, 0.2);
+            color: #fcd34d;
+        }
+
+        /* Sent Info Styling */
+        .sent-info {
+            font-size: 11px;
+            line-height: 1.4;
+        }
+
+        .sent-info div {
+            margin: 2px 0;
+        }
+
+        .qty-value {
+            color: #10b981;
+            font-weight: 600;
+        }
+
+        .weight-value {
+            color: #3b82f6;
+            font-weight: 600;
+        }
+
+        /* Foto Thumbnail */
         .foto-thumb {
             width: 40px;
             height: 40px;
@@ -454,53 +609,44 @@ if (!empty($items)) {
             transform: scale(1.1);
         }
 
-        .status-diterima {
-            background: rgba(34, 197, 94, 0.2);
-            color: #86efac;
+        /* Text Alignment */
+        .text-left {
+            text-align: left !important;
         }
 
-        .status-menunggu {
-            background: rgba(245, 158, 11, 0.2);
-            color: #fcd34d;
+        .text-center {
+            text-align: center !important;
         }
 
-        /* Styling untuk kolom Sent to Site yang baru */
-        .sent-info {
-            font-size: 11px;
-            line-height: 1.3;
-            text-align: center;
+        .text-right {
+            text-align: right !important;
         }
 
-        .sent-info div {
-            margin: 2px 0;
-        }
+        /* Responsive */
+        @media (max-width: 768px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
 
-        .sent-info strong {
-            color: var(--text);
-            font-weight: 600;
-        }
+            .page-header {
+                flex-direction: column;
+                gap: 16px;
+                align-items: stretch;
+            }
 
-        .weight-value {
-            color: #3b82f6;
-            font-weight: 600;
-        }
+            .header-left {
+                flex-direction: column;
+                align-items: stretch;
+            }
 
-        .qty-value {
-            color: #10b981;
-            font-weight: 600;
-        }
+            .header-actions {
+                flex-direction: column;
+            }
 
-        /* Progress indicator colors based on logic */
-        .progress-complete {
-            background: linear-gradient(90deg, #10b981, #059669);
-        }
-
-        .progress-partial {
-            background: linear-gradient(90deg, #3b82f6, #06b6d4);
-        }
-
-        .progress-waiting {
-            background: linear-gradient(90deg, #f59e0b, #d97706);
+            .header-actions .btn {
+                width: 100%;
+                justify-content: center;
+            }
         }
     </style>
 </head>
@@ -564,7 +710,7 @@ if (!empty($items)) {
                 </div>
             <?php endif; ?>
 
-            <!-- Statistics - DIPERBAIKI -->
+            <!-- Statistics -->
             <div class="stats-grid">
                 <div class="stat-card">
                     <div class="stat-value"><?= $totalItems ?></div>
@@ -604,18 +750,18 @@ if (!empty($items)) {
                         <table class="data-table">
                             <thead>
                                 <tr>
-                                    <th class="text-center">No</th>
+                                    <th>No</th>
                                     <th>Nama Parts</th>
                                     <th>Marking</th>
-                                    <th class="text-center">QTY<br>(Pcs)</th>
-                                    <th class="text-center">Sent to Site</th>
+                                    <th>QTY<br>(Pcs)</th>
+                                    <th>Sent to Site</th>
                                     <th>No. Truk</th>
-                                    <th class="text-center">Foto</th>
+                                    <th>Foto</th>
                                     <th>Keterangan</th>
                                     <th>Remarks</th>
-                                    <th class="text-center">Progress</th>
+                                    <th>Progress</th>
                                     <th>Status</th>
-                                    <th class="text-center">Aksi</th>
+                                    <th>Aksi</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -634,7 +780,7 @@ if (!empty($items)) {
                                     $qty = (int)($item['qty'] ?? 0);
                                     $status = $item['status'] ?? 'Menunggu';
 
-                                    // ✅ Hitung progress berdasarkan logic yang diminta
+                                    // Hitung progress berdasarkan logic yang diminta
                                     $progress = calculateSiteProgress($sentQty, $qty, $status);
 
                                     // Tentukan class progress berdasarkan kondisi
@@ -646,18 +792,18 @@ if (!empty($items)) {
                                     }
                                     ?>
                                     <tr>
-                                        <td class="text-center"><?= h($item['no']) ?></td>
+                                        <td><?= h($item['no']) ?></td>
                                         <td><?= h($item['nama_parts']) ?></td>
                                         <td><?= h($item['marking']) ?></td>
-                                        <td class="text-center"><?= number_format($qty) ?></td>
-                                        <td class="text-center">
+                                        <td><?= number_format($qty) ?></td>
+                                        <td>
                                             <div class="sent-info">
                                                 <div><span class="qty-value">JML: <?= number_format($sentQty) ?> (pcs)</span></div>
                                                 <div><span class="weight-value">weight: <?= number_format($weight, 2) ?> (kg)</span></div>
                                             </div>
                                         </td>
                                         <td><?= h($item['no_truk']) ?: '-' ?></td>
-                                        <td class="text-center">
+                                        <td>
                                             <?php if ($item['foto']): ?>
                                                 <a href="<?= h($item['foto']) ?>" target="_blank">
                                                     <img src="<?= h($item['foto']) ?>" class="foto-thumb" alt="Foto" title="Klik untuk melihat foto">
@@ -666,13 +812,9 @@ if (!empty($items)) {
                                                 <span style="color: var(--muted);">-</span>
                                             <?php endif; ?>
                                         </td>
-                                        <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">
-                                            <?= h($item['keterangan']) ?>
-                                        </td>
-                                        <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">
-                                            <?= h($item['remarks']) ?>
-                                        </td>
-                                        <td class="text-center">
+                                        <td><?= h($item['keterangan']) ?></td>
+                                        <td><?= h($item['remarks']) ?></td>
+                                        <td>
                                             <div style="display: flex; align-items: center; gap: 8px; justify-content: center;">
                                                 <div class="progress-bar-container">
                                                     <div class="progress-bar-fill <?= $progressClass ?>" style="width: <?= $progress ?>%"></div>
@@ -685,7 +827,7 @@ if (!empty($items)) {
                                                 <?= h($status) ?>
                                             </span>
                                         </td>
-                                        <td class="text-center">
+                                        <td>
                                             <div class="action-btns">
                                                 <a href="logistik_site_edit.php?id=<?= $item['id'] ?>&pon=<?= urlencode($ponCode) ?>"
                                                     class="btn-icon edit"
@@ -707,7 +849,6 @@ if (!empty($items)) {
                     </div>
                 <?php endif; ?>
             </div>
-
         </main>
 
         <footer class="footer">© <?= date('Y') ?> <?= h($appName) ?> • Site Logistik</footer>
