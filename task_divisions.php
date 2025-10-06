@@ -86,11 +86,15 @@ $totalFabrikasiItems = count($fabrikasiItems);
 // Hitung status tasks
 $todoTasks = count(array_filter($allTasks, fn($t) => strtolower($t['status'] ?? '') === 'todo'));
 $onProgressTasks = count(array_filter($allTasks, fn($t) => strtolower($t['status'] ?? '') === 'on proses'));
+$holdTasks = count(array_filter($allTasks, fn($t) => strtolower($t['status'] ?? '') === 'hold'));
+$waitingApproveTasks = count(array_filter($allTasks, fn($t) => strtolower($t['status'] ?? '') === 'waiting approve'));
 $doneTasks = count(array_filter($allTasks, fn($t) => strtolower($t['status'] ?? '') === 'done'));
 
 // Hitung status fabrikasi items
 $fabrikasiTodo = 0;
 $fabrikasiProgress = 0;
+$fabrikasiHold = 0;
+$fabrikasiWaitingApprove = 0;
 $fabrikasiDone = 0;
 
 if (!empty($fabrikasiItems)) {
@@ -98,53 +102,41 @@ if (!empty($fabrikasiItems)) {
         $progress = $item['progress_calculated'] ?? 0;
         if ($progress == 100) {
             $fabrikasiDone++;
-        } elseif ($progress > 0) {
+        } elseif ($progress > 0 && $progress < 100) {
             $fabrikasiProgress++;
         } else {
             $fabrikasiTodo++;
         }
+        // Untuk fabrikasi, anggap tidak ada status Hold dan Waiting Approve
     }
 }
 
-// INTEGRATE: Total Items/Tasks = Tasks dari divisi lain + Items dari fabrikasi + Items dari logistik
-$integratedTotal = $totalTasks + $totalFabrikasiItems + $logistikTotalItems;
-$integratedTodo = $todoTasks + $fabrikasiTodo + $logistikBelumSelesai;
-$integratedProgress = $onProgressTasks + $fabrikasiProgress;
-$integratedDone = $doneTasks + $fabrikasiDone + $logistikSelesai;
+// Hitung status logistik items (Hold dan Waiting Approve tidak berlaku untuk logistik)
+$logistikTodo = $logistikBelumSelesai;
+$logistikProgress = 0;
+$logistikHold = 0;
+$logistikWaitingApprove = 0;
+$logistikDone = $logistikSelesai;
 
-// Calculate percentages for integrated data
+// ✅ PERHITUNGAN PROGRESS UNTUK VISUALISASI PIE CHART
+$integratedTotal = $totalTasks + $totalFabrikasiItems + $logistikTotalItems;
+
+// Hitung semua status untuk visualisasi pie chart
+$integratedTodo = $todoTasks + $fabrikasiTodo + $logistikTodo;
+$integratedProgress = $onProgressTasks + $fabrikasiProgress + $logistikProgress;
+$integratedHold = $holdTasks + $fabrikasiHold + $logistikHold;
+$integratedWaitingApprove = $waitingApproveTasks + $fabrikasiWaitingApprove + $logistikWaitingApprove;
+$integratedDone = $doneTasks + $fabrikasiDone + $logistikDone;
+
+// ✅ PROGRESS AKTUAL = HANYA berdasarkan item yang SELESAI (untuk perhitungan utama)
+$overallProgress = $integratedTotal > 0 ? round(($integratedDone / $integratedTotal) * 100) : 0;
+
+// Untuk pie chart - hitung persentase semua status
 $todoPercent = $integratedTotal > 0 ? round(($integratedTodo / $integratedTotal) * 100) : 0;
 $progressPercent = $integratedTotal > 0 ? round(($integratedProgress / $integratedTotal) * 100) : 0;
+$holdPercent = $integratedTotal > 0 ? round(($integratedHold / $integratedTotal) * 100) : 0;
+$waitingApprovePercent = $integratedTotal > 0 ? round(($integratedWaitingApprove / $integratedTotal) * 100) : 0;
 $donePercent = $integratedTotal > 0 ? round(($integratedDone / $integratedTotal) * 100) : 0;
-
-// Calculate overall project progress (include fabrikasi & logistik)
-$totalProgressValue = 0;
-$maxProgressValue = 0;
-
-// Progress dari tasks
-foreach ($allTasks as $task) {
-    $maxProgressValue += 100;
-    $totalProgressValue += (int)($task['progress'] ?? 0);
-}
-
-// Progress dari fabrikasi items
-foreach ($fabrikasiItems as $item) {
-    $maxProgressValue += 100;
-    $totalProgressValue += ($item['progress_calculated'] ?? 0);
-}
-
-// Progress dari logistik items
-foreach ($logistikWorkshopItems as $item) {
-    $maxProgressValue += 100;
-    $totalProgressValue += ($item['progress'] ?? 0);
-}
-
-foreach ($logistikSiteItems as $item) {
-    $maxProgressValue += 100;
-    $totalProgressValue += ($item['progress'] ?? 0);
-}
-
-$overallProgress = $maxProgressValue > 0 ? round(($totalProgressValue / $maxProgressValue) * 100) : 0;
 
 // Calculate division statistics
 $divisions = ['Engineering', 'Purchasing', 'Pabrikasi', 'Logistik'];
@@ -169,9 +161,13 @@ foreach ($divisions as $div) {
                 'total' => $totalItems,
                 'todo' => $todoItems,
                 'progress' => $progressItems,
+                'hold' => 0,
+                'waiting_approve' => 0,
                 'done' => $doneItems,
                 'todo_percent' => $totalItems > 0 ? round(($todoItems / $totalItems) * 100) : 0,
                 'progress_percent' => $totalItems > 0 ? round(($progressItems / $totalItems) * 100) : 0,
+                'hold_percent' => 0,
+                'waiting_approve_percent' => 0,
                 'done_percent' => $totalItems > 0 ? round(($doneItems / $totalItems) * 100) : 0
             ];
         } else {
@@ -180,6 +176,8 @@ foreach ($divisions as $div) {
             $divTotal = count($divTasks);
             $divTodo = count(array_filter($divTasks, fn($t) => strtolower($t['status'] ?? '') === 'todo'));
             $divProgress = count(array_filter($divTasks, fn($t) => strtolower($t['status'] ?? '') === 'on proses'));
+            $divHold = count(array_filter($divTasks, fn($t) => strtolower($t['status'] ?? '') === 'hold'));
+            $divWaitingApprove = count(array_filter($divTasks, fn($t) => strtolower($t['status'] ?? '') === 'waiting approve'));
             $divDone = count(array_filter($divTasks, fn($t) => strtolower($t['status'] ?? '') === 'done'));
 
             $divisionStats[$div] = [
@@ -187,9 +185,13 @@ foreach ($divisions as $div) {
                 'total' => $divTotal,
                 'todo' => $divTodo,
                 'progress' => $divProgress,
+                'hold' => $divHold,
+                'waiting_approve' => $divWaitingApprove,
                 'done' => $divDone,
                 'todo_percent' => $divTotal > 0 ? round(($divTodo / $divTotal) * 100) : 0,
                 'progress_percent' => $divTotal > 0 ? round(($divProgress / $divTotal) * 100) : 0,
+                'hold_percent' => $divTotal > 0 ? round(($divHold / $divTotal) * 100) : 0,
+                'waiting_approve_percent' => $divTotal > 0 ? round(($divWaitingApprove / $divTotal) * 100) : 0,
                 'done_percent' => $divTotal > 0 ? round(($divDone / $divTotal) * 100) : 0
             ];
         }
@@ -200,9 +202,13 @@ foreach ($divisions as $div) {
             'total' => $logistikTotalItems,
             'todo' => $logistikBelumSelesai,      // Belum Terkirim/Menunggu = To Do
             'progress' => 0,                      // Logistik tidak ada status progress
+            'hold' => 0,                          // Logistik tidak ada status hold
+            'waiting_approve' => 0,               // Logistik tidak ada status waiting approve
             'done' => $logistikSelesai,           // Terkirim/Diterima = Done
             'todo_percent' => $logistikTodoPercent,
             'progress_percent' => 0,              // Tidak ada progress
+            'hold_percent' => 0,                  // Tidak ada hold
+            'waiting_approve_percent' => 0,       // Tidak ada waiting approve
             'done_percent' => $logistikDonePercent
         ];
     } else {
@@ -211,6 +217,8 @@ foreach ($divisions as $div) {
         $divTotal = count($divTasks);
         $divTodo = count(array_filter($divTasks, fn($t) => strtolower($t['status'] ?? '') === 'todo'));
         $divProgress = count(array_filter($divTasks, fn($t) => strtolower($t['status'] ?? '') === 'on proses'));
+        $divHold = count(array_filter($divTasks, fn($t) => strtolower($t['status'] ?? '') === 'hold'));
+        $divWaitingApprove = count(array_filter($divTasks, fn($t) => strtolower($t['status'] ?? '') === 'waiting approve'));
         $divDone = count(array_filter($divTasks, fn($t) => strtolower($t['status'] ?? '') === 'done'));
 
         $divisionStats[$div] = [
@@ -218,9 +226,13 @@ foreach ($divisions as $div) {
             'total' => $divTotal,
             'todo' => $divTodo,
             'progress' => $divProgress,
+            'hold' => $divHold,
+            'waiting_approve' => $divWaitingApprove,
             'done' => $divDone,
             'todo_percent' => $divTotal > 0 ? round(($divTodo / $divTotal) * 100) : 0,
             'progress_percent' => $divTotal > 0 ? round(($divProgress / $divTotal) * 100) : 0,
+            'hold_percent' => $divTotal > 0 ? round(($divHold / $divTotal) * 100) : 0,
+            'waiting_approve_percent' => $divTotal > 0 ? round(($divWaitingApprove / $divTotal) * 100) : 0,
             'done_percent' => $divTotal > 0 ? round(($divDone / $divTotal) * 100) : 0
         ];
     }
@@ -232,11 +244,11 @@ $statusList = ['To Do', 'On Proses', 'Hold', 'Waiting Approve', 'Done'];
 
 // HITUNG INTEGRATED TOTALS TERPISAH
 $integratedStatusCounts = [
-    'To Do' => 0,
-    'On Proses' => 0,
-    'Hold' => 0,
-    'Waiting Approve' => 0,
-    'Done' => 0
+    'To Do' => $integratedTodo,
+    'On Proses' => $integratedProgress,
+    'Hold' => $integratedHold,
+    'Waiting Approve' => $integratedWaitingApprove,
+    'Done' => $integratedDone
 ];
 
 foreach ($divisions as $div) {
@@ -257,13 +269,10 @@ foreach ($divisions as $div) {
                 $progress = $item['progress_calculated'] ?? 0;
                 if ($progress == 100) {
                     $statusCounts['Done']++;
-                    $integratedStatusCounts['Done']++;
                 } elseif ($progress > 0) {
                     $statusCounts['On Proses']++;
-                    $integratedStatusCounts['On Proses']++;
                 } else {
                     $statusCounts['To Do']++;
-                    $integratedStatusCounts['To Do']++;
                 }
             }
         }
@@ -290,10 +299,8 @@ foreach ($divisions as $div) {
         foreach ($logistikWorkshopItems as $item) {
             if ($item['status'] === 'Terkirim') {
                 $statusCounts['Done']++;
-                $integratedStatusCounts['Done']++;
             } else {
                 $statusCounts['To Do']++;
-                $integratedStatusCounts['To Do']++;
             }
         }
 
@@ -301,10 +308,8 @@ foreach ($divisions as $div) {
         foreach ($logistikSiteItems as $item) {
             if ($item['status'] === 'Diterima') {
                 $statusCounts['Done']++;
-                $integratedStatusCounts['Done']++;
             } else {
                 $statusCounts['To Do']++;
-                $integratedStatusCounts['To Do']++;
             }
         }
 
@@ -329,7 +334,6 @@ foreach ($divisions as $div) {
             $status = $task['status'] ?? 'To Do';
             if (isset($statusCounts[$status])) {
                 $statusCounts[$status]++;
-                $integratedStatusCounts[$status]++;
             }
         }
 
@@ -684,6 +688,10 @@ $divisionStatusStats['Integrated'] = [
             background: linear-gradient(90deg, #10b981, #059669);
         }
 
+        .bar-fill.bg-orange {
+            background: linear-gradient(90deg, #f97316, #ea580c);
+        }
+
         /* Styling teks di dalam bar */
         .bar-progress-text {
             position: absolute;
@@ -719,6 +727,29 @@ $divisionStatusStats['Integrated'] = [
             align-items: center;
             justify-content: flex-end;
             padding-right: 4px;
+        }
+
+        /* Legend untuk Pie Chart */
+        .pie-legend {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            color: var(--muted);
+        }
+
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
         }
     </style>
 </head>
@@ -764,16 +795,30 @@ $divisionStatusStats['Integrated'] = [
                                 onmouseover="showTooltip(event, this)" onmouseout="hideTooltip()"></circle>
                             <!-- On Progress -->
                             <circle class="pie-slice" cx="21" cy="21" r="15.915"
-                                fill="transparent" stroke="#06b6d4" stroke-width="3"
+                                fill="transparent" stroke="#3b82f6" stroke-width="3"
                                 stroke-dasharray="<?= $progressPercent ?> <?= 100 - $progressPercent ?>"
                                 stroke-dashoffset="<?= 25 - $todoPercent ?>"
                                 data-tooltip="On Progress (<?= $integratedProgress ?> items/tasks)"
+                                onmouseover="showTooltip(event, this)" onmouseout="hideTooltip()"></circle>
+                            <!-- Hold -->
+                            <circle class="pie-slice" cx="21" cy="21" r="15.915"
+                                fill="transparent" stroke="#f59e0b" stroke-width="3"
+                                stroke-dasharray="<?= $holdPercent ?> <?= 100 - $holdPercent ?>"
+                                stroke-dashoffset="<?= 25 - $todoPercent - $progressPercent ?>"
+                                data-tooltip="Hold (<?= $integratedHold ?> items/tasks)"
+                                onmouseover="showTooltip(event, this)" onmouseout="hideTooltip()"></circle>
+                            <!-- Waiting Approve -->
+                            <circle class="pie-slice" cx="21" cy="21" r="15.915"
+                                fill="transparent" stroke="#a855f7" stroke-width="3"
+                                stroke-dasharray="<?= $waitingApprovePercent ?> <?= 100 - $waitingApprovePercent ?>"
+                                stroke-dashoffset="<?= 25 - $todoPercent - $progressPercent - $holdPercent ?>"
+                                data-tooltip="Waiting Approve (<?= $integratedWaitingApprove ?> items/tasks)"
                                 onmouseover="showTooltip(event, this)" onmouseout="hideTooltip()"></circle>
                             <!-- Done -->
                             <circle class="pie-slice" cx="21" cy="21" r="15.915"
                                 fill="transparent" stroke="#10b981" stroke-width="3"
                                 stroke-dasharray="<?= $donePercent ?> <?= 100 - $donePercent ?>"
-                                stroke-dashoffset="<?= 25 - $todoPercent - $progressPercent ?>"
+                                stroke-dashoffset="<?= 25 - $todoPercent - $progressPercent - $holdPercent - $waitingApprovePercent ?>"
                                 data-tooltip="Done (<?= $integratedDone ?> items/tasks)"
                                 onmouseover="showTooltip(event, this)" onmouseout="hideTooltip()"></circle>
                             <!-- Center text -->
@@ -784,14 +829,39 @@ $divisionStatusStats['Integrated'] = [
                                 Total
                             </text>
                             <text x="21" y="31" text-anchor="middle" fill="#3b82f6" font-size="3" font-weight="600">
-                                Progress: <?= $overallProgress ?>%
+                                Selesai: <?= $overallProgress ?>%
                             </text>
                         </svg>
                         <div class="tooltip" id="tooltip"></div>
                     </div>
+
+                    <!-- Legend -->
+                    <div class="pie-legend">
+                        <div class="legend-item">
+                            <div class="legend-color" style="background-color: #9ca3af;"></div>
+                            <span>To Do (<?= $integratedTodo ?>)</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background-color: #3b82f6;"></div>
+                            <span>On Progress (<?= $integratedProgress ?>)</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background-color: #f59e0b;"></div>
+                            <span>Hold (<?= $integratedHold ?>)</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background-color: #a855f7;"></div>
+                            <span>Waiting Approve (<?= $integratedWaitingApprove ?>)</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color" style="background-color: #10b981;"></div>
+                            <span>Done (<?= $integratedDone ?>)</span>
+                        </div>
+                    </div>
+
                     <div style="text-align: center; margin-top: 12px; font-size: 12px; color: var(--muted);">
-                        <div>Tasks/Items: <?= $integratedTotal ?></div>
-                        <div>Progress Overall: <?= $overallProgress ?>%</div>
+                        <div>Total Items: <?= $integratedTotal ?></div>
+                        <div><strong>Progress Aktual: <?= $overallProgress ?>% (berdasarkan item selesai)</strong></div>
                     </div>
                 </div>
 
@@ -816,10 +886,8 @@ $divisionStatusStats['Integrated'] = [
                                     $total = $div['total'];
                                     $cumulativeWidth = 0;
 
-                                    // Untuk Pabrikasi hanya show 3 status, untuk divisi lain show semua
-                                    $statusesToShow = $div['name'] === 'Pabrikasi' ? ['To Do', 'On Proses', 'Done'] : ($div['name'] === 'Logistik' ? ['To Do', 'Done'] : $statusList);
-
-                                    foreach ($statusesToShow as $status) {
+                                    // Untuk semua divisi show semua status
+                                    foreach ($statusList as $status) {
                                         $count = $div['statuses'][$status] ?? 0;
                                         if ($count == 0) continue;
 
@@ -835,7 +903,7 @@ $divisionStatusStats['Integrated'] = [
                                                 $colorClass = 'bg-blue';
                                                 break;
                                             case 'Hold':
-                                                $colorClass = 'bg-yellow';
+                                                $colorClass = 'bg-orange';
                                                 break;
                                             case 'Waiting Approve':
                                                 $colorClass = 'bg-purple';
@@ -897,12 +965,21 @@ $divisionStatusStats['Integrated'] = [
                         <div class="detail-label">Total Items/Tasks</div>
                         <div class="detail-value">
                             <?= $integratedTotal ?>
-                            (<?= $totalTasks ?> tasks + <?= $totalFabrikasiItems ?> fabrikasi + <?= $logistikTotalItems ?> logistik)
+                            <br>
+                            <small style="font-size: 10px; color: var(--muted);">
+                                (<?= $totalTasks ?> tasks + <?= $totalFabrikasiItems ?> fabrikasi + <?= $logistikTotalItems ?> logistik)
+                            </small>
                         </div>
                     </div>
                     <div class="detail-item">
                         <div class="detail-label">Progress Aktual</div>
-                        <div class="detail-value" style="color: #3b82f6; font-weight: 700;"><?= $overallProgress ?>%</div>
+                        <div class="detail-value" style="color: #3b82f6; font-weight: 700;">
+                            <?= $overallProgress ?>%
+                            <br>
+                            <small style="font-size: 10px; color: var(--muted);">
+                                (<?= $integratedDone ?> dari <?= $integratedTotal ?> items selesai)
+                            </small>
+                        </div>
                     </div>
                     <div class="detail-item">
                         <div class="detail-label">Status</div>
@@ -939,17 +1016,35 @@ $divisionStatusStats['Integrated'] = [
                                     <!-- On Progress -->
                                     <?php if ($div['progress_percent'] > 0): ?>
                                         <circle class="pie-slice" cx="21" cy="21" r="15.915"
-                                            fill="transparent" stroke="#06b6d4" stroke-width="3"
+                                            fill="transparent" stroke="#3b82f6" stroke-width="3"
                                             stroke-dasharray="<?= $div['progress_percent'] ?> <?= 100 - $div['progress_percent'] ?>"
                                             stroke-dashoffset="<?= 25 - $div['todo_percent'] ?>"
                                             data-tooltip="On Progress (<?= $div['progress'] ?> <?= $div['name'] === 'Pabrikasi' ? 'items' : ($div['name'] === 'Logistik' ? 'items' : 'tasks') ?>)"
+                                            onmouseover="showTooltip(event, this)" onmouseout="hideTooltip()"></circle>
+                                    <?php endif; ?>
+                                    <!-- Hold -->
+                                    <?php if ($div['hold_percent'] > 0): ?>
+                                        <circle class="pie-slice" cx="21" cy="21" r="15.915"
+                                            fill="transparent" stroke="#f59e0b" stroke-width="3"
+                                            stroke-dasharray="<?= $div['hold_percent'] ?> <?= 100 - $div['hold_percent'] ?>"
+                                            stroke-dashoffset="<?= 25 - $div['todo_percent'] - $div['progress_percent'] ?>"
+                                            data-tooltip="Hold (<?= $div['hold'] ?> <?= $div['name'] === 'Pabrikasi' ? 'items' : ($div['name'] === 'Logistik' ? 'items' : 'tasks') ?>)"
+                                            onmouseover="showTooltip(event, this)" onmouseout="hideTooltip()"></circle>
+                                    <?php endif; ?>
+                                    <!-- Waiting Approve -->
+                                    <?php if ($div['waiting_approve_percent'] > 0): ?>
+                                        <circle class="pie-slice" cx="21" cy="21" r="15.915"
+                                            fill="transparent" stroke="#a855f7" stroke-width="3"
+                                            stroke-dasharray="<?= $div['waiting_approve_percent'] ?> <?= 100 - $div['waiting_approve_percent'] ?>"
+                                            stroke-dashoffset="<?= 25 - $div['todo_percent'] - $div['progress_percent'] - $div['hold_percent'] ?>"
+                                            data-tooltip="Waiting Approve (<?= $div['waiting_approve'] ?> <?= $div['name'] === 'Pabrikasi' ? 'items' : ($div['name'] === 'Logistik' ? 'items' : 'tasks') ?>)"
                                             onmouseover="showTooltip(event, this)" onmouseout="hideTooltip()"></circle>
                                     <?php endif; ?>
                                     <!-- Done -->
                                     <circle class="pie-slice" cx="21" cy="21" r="15.915"
                                         fill="transparent" stroke="#10b981" stroke-width="3"
                                         stroke-dasharray="<?= $div['done_percent'] ?> <?= 100 - $div['done_percent'] ?>"
-                                        stroke-dashoffset="<?= 25 - $div['todo_percent'] - $div['progress_percent'] ?>"
+                                        stroke-dashoffset="<?= 25 - $div['todo_percent'] - $div['progress_percent'] - $div['hold_percent'] - $div['waiting_approve_percent'] ?>"
                                         data-tooltip="Done (<?= $div['done'] ?> <?= $div['name'] === 'Pabrikasi' ? 'items' : ($div['name'] === 'Logistik' ? 'items' : 'tasks') ?>)"
                                         onmouseover="showTooltip(event, this)" onmouseout="hideTooltip()"></circle>
                                     <!-- Center text - SEDERHANA seperti divisi lain -->

@@ -225,86 +225,148 @@ $totalQty = array_sum(array_column($items, 'qty'));
             color: var(--text);
         }
 
-        /* PERBAIKAN: Container tabel dengan fixed height dan scrolling */
+        /* 1. PERBAIKAN: Container tabel dengan scrolling yang lebih jelas */
         .table-container {
             overflow: auto;
             max-height: 600px;
-            /* Tinggi maksimal untuk scrolling vertikal */
+            /* Sesuaikan tinggi sesuai kebutuhan */
             position: relative;
+            /* Tambahan untuk memastikan scrollbar selalu terlihat */
+            overflow-x: auto;
+            overflow-y: auto;
         }
 
-        /* Header table tetap di atas saat scroll */
+        /* 2. Header table tetap di atas saat scroll (sticky) */
         .data-table thead {
             background: #374151;
             position: sticky;
             top: 0;
             z-index: 10;
+            /* Tambahan untuk shadow saat scroll */
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
         }
 
-        .data-table {            
-            width: 100%;
-            min-width: 1800px;
-            border-collapse: collapse;
-        }
-
-        .data-table th {
-            padding: 10px 12px;
-            text-align: center;
-            color: var(--muted);
-            font-weight: 600;
-            font-size: 10px;
-            text-transform: uppercase;
-            border-bottom: 1px solid var(--border);
-            white-space: nowrap;
-            vertical-align: middle;
+        .data-table thead th {
             background: #374151;
             /* Pastikan background konsisten */
         }
 
-        .data-table td {
-            text-align: center;
-            padding: 10px 12px;
-            color: var(--text);
-            font-size: 12px;
-            border-bottom: 1px solid var(--border);
-            vertical-align: middle;
-            white-space: nowrap;
-        }
-
-        .data-table tbody tr:hover {
-            background: rgba(255, 255, 255, 0.02);
-        }
-
-        /* Custom Scrollbar Styling */
+        /* 3. SCROLLBAR VERTIKAL - Lebih Jelas & Terlihat */
         .table-container::-webkit-scrollbar {
-            width: 8px;
-            /* Scrollbar vertikal */
-            height: 8px;
-            /* Scrollbar horizontal */
+            width: 12px;
+            /* Lebih lebar dari sebelumnya (8px -> 12px) */
+            height: 12px;
+            /* Untuk scrollbar horizontal */
         }
 
         .table-container::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.08);
+            /* Lebih terang */
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
         }
 
         .table-container::-webkit-scrollbar-thumb {
-            background: rgba(147, 197, 253, 0.3);
-            border-radius: 4px;
+            background: rgba(59, 130, 246, 0.6);
+            /* Warna biru lebih solid */
+            border-radius: 6px;
+            border: 2px solid rgba(255, 255, 255, 0.08);
+            /* Tambahan hover effect yang lebih smooth */
         }
 
         .table-container::-webkit-scrollbar-thumb:hover {
-            background: rgba(147, 197, 253, 0.5);
+            background: rgba(59, 130, 246, 0.9);
+            /* Lebih terang saat hover */
+            cursor: pointer;
+        }
+
+        .table-container::-webkit-scrollbar-thumb:active {
+            background: rgba(37, 99, 235, 1);
+            /* Solid saat diklik */
         }
 
         .table-container::-webkit-scrollbar-corner {
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(255, 255, 255, 0.08);
         }
 
-        /* Untuk browser Firefox */
+        /* 4. FIREFOX SUPPORT - Scrollbar lebih terlihat */
         .table-container {
-            scrollbar-width: thin;
-            scrollbar-color: rgba(147, 197, 253, 0.3) rgba(255, 255, 255, 0.05);
+            scrollbar-width: auto;
+            /* Ubah dari 'thin' ke 'auto' agar lebih jelas */
+            scrollbar-color: rgba(59, 130, 246, 0.6) rgba(255, 255, 255, 0.08);
+        }
+
+        /* 5. OPTIONAL: Tambahan indikator bahwa tabel bisa di-scroll */
+        .table-section {
+            position: relative;
+        }
+
+        /* Indikator gradient di bawah header untuk menunjukkan ada konten di bawah */
+        .table-container::before {
+            content: '';
+            position: sticky;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(to bottom, rgba(0, 0, 0, 0.3), transparent);
+            z-index: 9;
+            pointer-events: none;
+        }
+
+        /* 6. OPTIONAL: Indikator scroll di kanan untuk menunjukkan masih ada konten */
+        .table-container::after {
+            content: '↓';
+            position: sticky;
+            bottom: 0;
+            right: 20px;
+            width: 30px;
+            height: 30px;
+            background: rgba(59, 130, 246, 0.8);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+            z-index: 20;
+            margin-left: auto;
+        }
+
+        /* 7. PERBAIKAN UNTUK MOBILE - Scrollbar tetap terlihat di mobile */
+        @media (max-width: 768px) {
+            .table-container {
+                max-height: 500px;
+                /* Lebih pendek di mobile */
+            }
+
+            /* Di mobile, scrollbar mungkin tidak terlihat, jadi kita beri hint visual */
+            .table-section::after {
+                content: 'Geser untuk melihat lebih banyak ⟷';
+                display: block;
+                text-align: center;
+                padding: 8px;
+                background: rgba(59, 130, 246, 0.2);
+                color: #93c5fd;
+                font-size: 11px;
+                border-top: 1px solid rgba(59, 130, 246, 0.3);
+            }
+        }
+
+        /* 8. ALTERNATIF: Jika ingin scrollbar SELALU terlihat (bahkan saat tidak hover) */
+        .table-container::-webkit-scrollbar-thumb {
+            background: rgba(59, 130, 246, 0.5);
+            /* Selalu terlihat dengan opacity 50% */
+        }
+
+        /* 9. PERBAIKAN: Pastikan table tidak overflow ke samping */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            /* Min-width sudah ada di kode asli, ini bagus */
         }
 
         .action-btns {
@@ -585,7 +647,8 @@ $totalQty = array_sum(array_column($items, 'qty'));
                                         <td><?= h($item['surat_jalan_nomor']) ?: '-' ?></td>
                                         <td class="text-center"><?= h($item['ready_cgi']) ?></td>
                                         <td class="text-center"><?= h($item['os_dhj']) ?></td>
-                                        <td><?= h($item['remarks']) ?></td>                                       <td class="text-center">
+                                        <td><?= h($item['remarks']) ?></td>
+                                        <td class="text-center">
                                             <div style="display: flex; align-items: center; gap: 8px; justify-content: center;">
                                                 <div class="progress-bar-container">
                                                     <div class="progress-bar-fill" style="width: <?= (int)$item['progress'] ?>%"></div>

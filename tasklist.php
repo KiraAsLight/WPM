@@ -10,12 +10,170 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
 
 require_once 'config.php';
 
+// ✅ FUNCTION: Calculate Integrated Progress untuk PON - FIXED LOGIC
+function getIntegratedProgress($ponCode)
+{
+    static $cache = [];
+
+    if (isset($cache[$ponCode])) {
+        return $cache[$ponCode];
+    }
+
+    $tasks = fetchAll('SELECT * FROM tasks WHERE pon = ?', [$ponCode]);
+    $fabrikasiItems = fetchAll('SELECT * FROM fabrikasi_items WHERE pon = ?', [$ponCode]);
+    $logistikWorkshopItems = fetchAll('SELECT * FROM logistik_workshop WHERE pon = ?', [$ponCode]);
+    $logistikSiteItems = fetchAll('SELECT * FROM logistik_site WHERE pon = ?', [$ponCode]);
+
+    $completedItems = 0;
+    $totalItems = 0;
+
+    // ✅ LOGIC TASKS: Status "Done" = 100% progress
+    foreach ($tasks as $task) {
+        $totalItems++;
+        if (strtolower($task['status'] ?? '') === 'done') {
+            $completedItems++;
+        }
+    }
+
+    // ✅ LOGIC FABRIKASI: Progress 100% = completed
+    foreach ($fabrikasiItems as $item) {
+        $totalItems++;
+        if (($item['progress_calculated'] ?? 0) == 100) {
+            $completedItems++;
+        }
+    }
+
+    // ✅ LOGIC LOGISTIK WORKSHOP: Status "Terkirim" = completed
+    foreach ($logistikWorkshopItems as $item) {
+        $totalItems++;
+        if ($item['status'] === 'Terkirim') {
+            $completedItems++;
+        }
+    }
+
+    // ✅ LOGIC LOGISTIK SITE: Status "Diterima" = completed
+    foreach ($logistikSiteItems as $item) {
+        $totalItems++;
+        if ($item['status'] === 'Diterima') {
+            $completedItems++;
+        }
+    }
+
+    // Hitung persentase berdasarkan item yang completed
+    $progress = $totalItems > 0 ? (int)round(($completedItems / $totalItems) * 100) : 0;
+
+    $cache[$ponCode] = $progress;
+    return $progress;
+}
+
+// ✅ FUNCTION: Get Last Activity Date dari semua tables
+function getLastActivityDate($ponCode)
+{
+    $lastDates = [];
+
+    // 1. Cek dari tasks
+    $tasks = fetchAll('SELECT updated_at FROM tasks WHERE pon = ? ORDER BY updated_at DESC LIMIT 1', [$ponCode]);
+    if (!empty($tasks)) {
+        $lastDates[] = $tasks[0]['updated_at'];
+    }
+
+    // 2. Cek dari fabrikasi_items
+    $fabrikasi = fetchAll('SELECT updated_at FROM fabrikasi_items WHERE pon = ? ORDER BY updated_at DESC LIMIT 1', [$ponCode]);
+    if (!empty($fabrikasi)) {
+        $lastDates[] = $fabrikasi[0]['updated_at'];
+    }
+
+    // 3. Cek dari logistik_workshop
+    $logistikWorkshop = fetchAll('SELECT updated_at FROM logistik_workshop WHERE pon = ? ORDER BY updated_at DESC LIMIT 1', [$ponCode]);
+    if (!empty($logistikWorkshop)) {
+        $lastDates[] = $logistikWorkshop[0]['updated_at'];
+    }
+
+    // 4. Cek dari logistik_site
+    $logistikSite = fetchAll('SELECT updated_at FROM logistik_site WHERE pon = ? ORDER BY updated_at DESC LIMIT 1', [$ponCode]);
+    if (!empty($logistikSite)) {
+        $lastDates[] = $logistikSite[0]['updated_at'];
+    }
+
+    // 5. Cek dari pon table sendiri
+    $pon = fetchOne('SELECT updated_at FROM pon WHERE pon = ?', [$ponCode]);
+    if ($pon && $pon['updated_at']) {
+        $lastDates[] = $pon['updated_at'];
+    }
+
+    // Return tanggal terbaru
+    if (!empty($lastDates)) {
+        rsort($lastDates);
+        return $lastDates[0];
+    }
+
+    return null;
+}
+
+// ✅ FUNCTION: Determine Status berdasarkan Progress & Tanggal
+function calculatePonStatus($ponCode, $dateFinish, $currentStatus = 'Progres')
+{
+    $progress = getIntegratedProgress($ponCode);
+
+    // 1. Jika progress 100% → Status SELESAI
+    if ($progress == 100) {
+        return 'Selesai';
+    }
+
+    $today = new DateTime();
+    $finishDate = $dateFinish ? new DateTime($dateFinish) : null;
+
+    // 2. Jika sudah lewat tanggal selesai → Status DELAYED
+    if ($finishDate && $today > $finishDate) {
+        return 'Delayed';
+    }
+
+    // 3. Cek apakah ada aktivitas dalam 30 hari terakhir
+    $lastActivityDate = getLastActivityDate($ponCode);
+    if ($lastActivityDate) {
+        $lastActivity = new DateTime($lastActivityDate);
+        $interval = $today->diff($lastActivity);
+        $daysInactive = $interval->days;
+
+        // Jika tidak ada aktivitas selama 30 hari → Status PENDING
+        if ($daysInactive >= 30) {
+            return 'Pending';
+        }
+    }
+
+    // 4. Default → Status PROGRES
+    return 'Progres';
+}
+
+// ✅ FUNCTION: Update Status untuk semua PON
+function updateAllPonStatus()
+{
+    $allPon = fetchAll('SELECT pon, date_finish, status FROM pon');
+
+    foreach ($allPon as $pon) {
+        $newStatus = calculatePonStatus($pon['pon'], $pon['date_finish'], $pon['status']);
+
+        // Update hanya jika status berubah
+        if ($newStatus !== $pon['status']) {
+            update(
+                'pon',
+                ['status' => $newStatus, 'updated_at' => date('Y-m-d H:i:s')],
+                'pon = :pon',
+                ['pon' => $pon['pon']]
+            );
+        }
+    }
+}
+
+// ✅ AUTO-UPDATE STATUS SETIAP PAGE LOAD
+updateAllPonStatus();
+
 $appName = APP_NAME;
 $activeMenu = 'Task List';
 $server = $_SERVER['SERVER_SOFTWARE'] ?? 'Apache';
 $nowEpoch = time();
 
-// Muat PON dari database
+// Muat PON dari database (status sudah terupdate)
 $ponRecords = fetchAll('SELECT * FROM pon ORDER BY date_pon DESC');
 
 // Handle search/filter
@@ -47,122 +205,42 @@ if ($typeFilter) {
     });
 }
 
-// ✅ OPTIMASI: Cache function untuk integrated progress
-function getIntegratedProgress($ponCode) {
-    static $cache = [];
-    
-    if (isset($cache[$ponCode])) {
-        return $cache[$ponCode];
-    }
-    
-    $tasks = fetchAll('SELECT * FROM tasks WHERE pon = ?', [$ponCode]);
-    $fabrikasiItems = fetchAll('SELECT * FROM fabrikasi_items WHERE pon = ?', [$ponCode]);
-    $logistikWorkshopItems = fetchAll('SELECT * FROM logistik_workshop WHERE pon = ?', [$ponCode]);
-    $logistikSiteItems = fetchAll('SELECT * FROM logistik_site WHERE pon = ?', [$ponCode]);
-    
-    $progressValue = 0;
-    $maxProgressValue = 0;
-    
-    foreach ($tasks as $task) {
-        $maxProgressValue += 100;
-        $progressValue += (int)($task['progress'] ?? 0);
-    }
-    
-    foreach ($fabrikasiItems as $item) {
-        $maxProgressValue += 100;
-        $progressValue += ($item['progress_calculated'] ?? 0);
-    }
-    
-    foreach ($logistikWorkshopItems as $item) {
-        $maxProgressValue += 100;
-        $progressValue += ($item['progress'] ?? 0);
-    }
-    
-    foreach ($logistikSiteItems as $item) {
-        $maxProgressValue += 100;
-        $progressValue += ($item['progress'] ?? 0);
-    }
-    
-    $progress = $maxProgressValue > 0 ? (int)round(($progressValue / $maxProgressValue) * 100) : 0;
-    
-    $cache[$ponCode] = $progress;
-    return $progress;
-}
-
-// ✅ HITUNG INTEGRATED STATISTICS (sama seperti task_divisions.php)
+// ✅ HITUNG INTEGRATED STATISTICS - FIXED LOGIC
 $integratedTotal = 0;
 $integratedDone = 0;
-$totalProgressValue = 0;
-$maxProgressValue = 0;
 
 foreach ($ponRecords as $pon) {
     $ponCode = $pon['pon'];
-    
+
     // === DATA TASKS ===
     $tasks = fetchAll('SELECT * FROM tasks WHERE pon = ?', [$ponCode]);
     $totalTasks = count($tasks);
-    
+    $doneTasks = count(array_filter($tasks, fn($t) => strtolower($t['status'] ?? '') === 'done'));
+
     // === DATA FABRIKASI ===
     $fabrikasiItems = fetchAll('SELECT * FROM fabrikasi_items WHERE pon = ?', [$ponCode]);
     $totalFabrikasiItems = count($fabrikasiItems);
-    
+    $doneFabrikasiItems = count(array_filter($fabrikasiItems, fn($i) => ($i['progress_calculated'] ?? 0) == 100));
+
     // === DATA LOGISTIK ===
     $logistikWorkshopItems = fetchAll('SELECT * FROM logistik_workshop WHERE pon = ?', [$ponCode]);
     $logistikSiteItems = fetchAll('SELECT * FROM logistik_site WHERE pon = ?', [$ponCode]);
     $logistikTotalItems = count($logistikWorkshopItems) + count($logistikSiteItems);
-    
+
+    $doneLogistikWorkshop = count(array_filter($logistikWorkshopItems, fn($i) => $i['status'] === 'Terkirim'));
+    $doneLogistikSite = count(array_filter($logistikSiteItems, fn($i) => $i['status'] === 'Diterima'));
+    $doneLogistikItems = $doneLogistikWorkshop + $doneLogistikSite;
+
     // INTEGRATE: Total Items/Tasks = Tasks + Fabrikasi + Logistik
     $ponIntegratedTotal = $totalTasks + $totalFabrikasiItems + $logistikTotalItems;
+    $ponIntegratedDone = $doneTasks + $doneFabrikasiItems + $doneLogistikItems;
+
     $integratedTotal += $ponIntegratedTotal;
-    
-    // Hitung progress untuk PON ini
-    $ponProgressValue = 0;
-    $ponMaxProgressValue = 0;
-    
-    // Progress dari tasks
-    foreach ($tasks as $task) {
-        $ponMaxProgressValue += 100;
-        $ponProgressValue += (int)($task['progress'] ?? 0);
-        if (strtolower($task['status'] ?? '') === 'done') {
-            $integratedDone++;
-        }
-    }
-    
-    // Progress dari fabrikasi items
-    foreach ($fabrikasiItems as $item) {
-        $ponMaxProgressValue += 100;
-        $progress = $item['progress_calculated'] ?? 0;
-        $ponProgressValue += $progress;
-        if ($progress == 100) {
-            $integratedDone++;
-        }
-    }
-    
-    // Progress dari logistik items
-    foreach ($logistikWorkshopItems as $item) {
-        $ponMaxProgressValue += 100;
-        $progress = $item['progress'] ?? 0;
-        $ponProgressValue += $progress;
-        if ($item['status'] === 'Terkirim') {
-            $integratedDone++;
-        }
-    }
-    
-    foreach ($logistikSiteItems as $item) {
-        $ponMaxProgressValue += 100;
-        $progress = $item['progress'] ?? 0;
-        $ponProgressValue += $progress;
-        if ($item['status'] === 'Diterima') {
-            $integratedDone++;
-        }
-    }
-    
-    $totalProgressValue += $ponProgressValue;
-    $maxProgressValue += $ponMaxProgressValue;
+    $integratedDone += $ponIntegratedDone;
 }
 
 // Hitung rata-rata progress integrated
-$avgProgress = $maxProgressValue > 0 ? (int)round(($totalProgressValue / $maxProgressValue) * 100) : 0;
+$avgProgress = $integratedTotal > 0 ? (int)round(($integratedDone / $integratedTotal) * 100) : 0;
 
 // Hitung distribusi berdasarkan jenis jembatan
 $typeDistribution = [];
@@ -194,6 +272,8 @@ if ($selPon) {
     exit;
 }
 ?>
+
+<!-- REST OF THE HTML REMAINS THE SAME -->
 <!DOCTYPE html>
 <html lang="id">
 
@@ -206,7 +286,7 @@ if ($selPon) {
     <link rel="stylesheet" href="assets/css/sidebar.css?v=<?= filemtime('assets/css/sidebar.css') ?>">
     <link rel="stylesheet" href="assets/css/layout.css?v=<?= filemtime('assets/css/layout.css') ?>">
     <style>
-        /* Modern Task List Styles */
+        /* CSS Styles remain exactly the same as previous version */
         .dashboard-overview {
             background: var(--card-bg);
             border: 1px solid var(--border);
@@ -484,24 +564,24 @@ if ($selPon) {
             text-transform: uppercase;
         }
 
-        .status-progres {
-            background: rgba(59, 130, 246, 0.2);
-            color: #93c5fd;
-        }
-
         .status-selesai {
             background: rgba(34, 197, 94, 0.2);
             color: #86efac;
         }
 
+        .status-progres {
+            background: rgba(59, 130, 246, 0.2);
+            color: #93c5fd;
+        }
+
         .status-pending {
-            background: rgba(239, 68, 68, 0.2);
-            color: #fca5a5;
+            background: rgba(245, 158, 11, 0.2);
+            color: #fcd34d;
         }
 
         .status-delayed {
-            background: rgba(245, 158, 11, 0.2);
-            color: #fcd34d;
+            background: rgba(239, 68, 68, 0.2);
+            color: #fca5a5;
         }
 
         .project-info h4 {
@@ -657,6 +737,23 @@ if ($selPon) {
         .clear-filters:hover {
             background: rgba(255, 255, 255, 0.1);
         }
+
+        /* Status Info Tooltip */
+        .status-info {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            color: var(--muted);
+            cursor: help;
+        }
+
+        /* Progress Info */
+        .progress-info {
+            font-size: 10px;
+            color: var(--muted);
+            text-align: center;
+            margin-top: 8px;
+        }
     </style>
 </head>
 
@@ -705,7 +802,8 @@ if ($selPon) {
                         </div>
                         <div class="stat-content">
                             <div class="stat-value"><?= $integratedTotal ?></div>
-                            <div class="stat-label">Total Tasks</div>
+                            <div class="stat-label">Total Items</div>
+                            <div class="progress-info">Tasks + Fabrikasi + Logistik</div>
                         </div>
                     </div>
 
@@ -715,7 +813,8 @@ if ($selPon) {
                         </div>
                         <div class="stat-content">
                             <div class="stat-value"><?= $integratedDone ?></div>
-                            <div class="stat-label">Tasks Selesai</div>
+                            <div class="stat-label">Completed Items</div>
+                            <div class="progress-info">Done + Progress 100%</div>
                         </div>
                     </div>
 
@@ -725,7 +824,8 @@ if ($selPon) {
                         </div>
                         <div class="stat-content">
                             <div class="stat-value"><?= $integratedTotal - $integratedDone ?></div>
-                            <div class="stat-label">Tasks On Progress</div>
+                            <div class="stat-label">In Progress</div>
+                            <div class="progress-info">Active items</div>
                         </div>
                     </div>
 
@@ -735,7 +835,8 @@ if ($selPon) {
                         </div>
                         <div class="stat-content">
                             <div class="stat-value"><?= $avgProgress ?>%</div>
-                            <div class="stat-label">Rata-rata Progress</div>
+                            <div class="stat-label">Completion Rate</div>
+                            <div class="progress-info">Based on completed items</div>
                         </div>
                     </div>
                 </div>
@@ -755,21 +856,22 @@ if ($selPon) {
                             </button>
                         </div>
                     </div>
-                    
+
                     <div class="filter-controls">
                         <form method="GET" action="" class="search-box">
                             <i class="bi bi-search"></i>
-                            <input type="text" name="search" placeholder="Search projects..." 
+                            <input type="text" name="search" placeholder="Search projects..."
                                 value="<?= h($searchQuery) ?>">
                         </form>
-                        
+
                         <select class="status-filter" onchange="this.form.submit()" name="status">
                             <option value="">All Status</option>
-                            <option value="progres" <?= $statusFilter === 'progres' ? 'selected' : '' ?>>In Progress</option>
-                            <option value="selesai" <?= $statusFilter === 'selesai' ? 'selected' : '' ?>>Completed</option>
+                            <option value="selesai" <?= $statusFilter === 'selesai' ? 'selected' : '' ?>>Selesai</option>
+                            <option value="progres" <?= $statusFilter === 'progres' ? 'selected' : '' ?>>Progres</option>
                             <option value="pending" <?= $statusFilter === 'pending' ? 'selected' : '' ?>>Pending</option>
+                            <option value="delayed" <?= $statusFilter === 'delayed' ? 'selected' : '' ?>>Delayed</option>
                         </select>
-                        
+
                         <select class="type-filter" onchange="this.form.submit()" name="type">
                             <option value="">All Types</option>
                             <option value="rangka" <?= $typeFilter === 'rangka' ? 'selected' : '' ?>>Rangka</option>
@@ -799,68 +901,66 @@ if ($selPon) {
                                 <?php endif; ?>
                             </div>
                         <?php else: ?>
-                            <?php foreach ($filteredPonRecords as $pon): 
+                            <?php foreach ($filteredPonRecords as $pon):
                                 $progress = getIntegratedProgress($pon['pon']);
-                                $status = strtolower($pon['status'] ?? 'progres');
+                                $status = $pon['status']; // Status sudah terupdate otomatis
                             ?>
-                            <div class="project-card" onclick="window.location.href='task_divisions.php?pon=<?= urlencode($pon['pon']) ?>'">
-                                <!-- Card Header -->
-                                <div class="card-header">
-                                    <div class="project-id"><?= h($pon['pon']) ?></div>
-                                    <div class="project-status status-<?= $status ?>">
-                                        <?= h(ucfirst($status)) ?>
+                                <div class="project-card" onclick="window.location.href='task_divisions.php?pon=<?= urlencode($pon['pon']) ?>'">
+                                    <!-- Status Info Tooltip -->
+                                    <div class="status-info" title="Progress Logic:
+                                        • Each completed item = +1 to progress
+                                        • Tasks: Status 'Done'
+                                        • Fabrikasi: Progress 100%  
+                                        • Logistik: Status 'Terkirim/Diterima'">
+                                        <i class="bi bi-info-circle"></i>
                                     </div>
-                                </div>
 
-                                <!-- Project Info -->
-                                <div class="project-info">
-                                    <h4 class="project-name"><?= h($pon['client'] ?? 'No Client') ?></h4>
-                                    <p class="project-type"><?= h($pon['type'] ?? 'No Type') ?></p>
-                                    <div class="project-meta">
-                                        <div class="meta-item">
-                                            <i class="bi bi-calendar"></i>
-                                            <?= h(dmy($pon['date_pon'] ?? 'N/A')) ?>
-                                        </div>
-                                        <div class="meta-item">
-                                            <i class="bi bi-briefcase"></i>
-                                            <?= h($pon['job_type'] ?? 'N/A') ?>
+                                    <!-- Card Header -->
+                                    <div class="card-header">
+                                        <div class="project-id"><?= h($pon['pon']) ?></div>
+                                        <div class="project-status status-<?= strtolower($status) ?>">
+                                            <?= h($status) ?>
                                         </div>
                                     </div>
-                                </div>
 
-                                <!-- Progress Section -->
-                                <div class="progress-section">
-                                    <div class="progress-header">
-                                        <span>Overall Progress</span>
-                                        <span class="progress-value"><?= $progress ?>%</span>
-                                    </div>
-                                    <div class="progress-bar">
-                                        <div class="progress-fill" style="width: <?= $progress ?>%"></div>
-                                    </div>
-                                    
-                                    <!-- Mini Division Progress -->
-                                    <div class="division-progress">
-                                        <?php
-                                        $divisions = ['Engineering', 'Purchasing', 'Pabrikasi', 'Logistik'];
-                                        $colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
-                                        ?>
-                                        <?php foreach ($divisions as $index => $div): ?>
-                                        <div class="division-item">
-                                            <div class="division-color" style="background: <?= $colors[$index] ?>"></div>
-                                            <span class="division-name"><?= substr($div, 0, 3) ?></span>
+                                    <!-- Project Info -->
+                                    <div class="project-info">
+                                        <h4 class="project-name"><?= h($pon['client'] ?? 'No Client') ?></h4>
+                                        <p class="project-type"><?= h($pon['type'] ?? 'No Type') ?></p>
+                                        <div class="project-meta">
+                                            <div class="meta-item">
+                                                <i class="bi bi-calendar"></i>
+                                                Start: <?= h(dmy($pon['date_pon'] ?? 'N/A')) ?>
+                                            </div>
+                                            <div class="meta-item">
+                                                <i class="bi bi-calendar-check"></i>
+                                                Finish: <?= h(dmy($pon['date_finish'] ?? 'N/A')) ?>
+                                            </div>
                                         </div>
-                                        <?php endforeach; ?>
+                                    </div>
+
+                                    <!-- Progress Section -->
+                                    <div class="progress-section">
+                                        <div class="progress-header">
+                                            <span>Completion Progress</span>
+                                            <span class="progress-value"><?= $progress ?>%</span>
+                                        </div>
+                                        <div class="progress-bar">
+                                            <div class="progress-fill" style="width: <?= $progress ?>%"></div>
+                                        </div>
+                                        <div class="progress-info">
+                                            Based on completed items across all divisions
+                                        </div>
+                                    </div>
+
+                                    <!-- Quick Actions -->
+                                    <div class="card-actions">
+                                        <button class="btn-view" onclick="event.stopPropagation(); window.location.href='task_divisions.php?pon=<?= urlencode($pon['pon']) ?>'">
+                                            <i class="bi bi-eye"></i>
+                                            View Details
+                                        </button>
                                     </div>
                                 </div>
-
-                                <!-- Quick Actions -->
-                                <div class="card-actions">
-                                    <button class="btn-view" onclick="event.stopPropagation(); window.location.href='task_divisions.php?pon=<?= urlencode($pon['pon']) ?>'">
-                                        <i class="bi bi-eye"></i>
-                                        View Details
-                                    </button>
-                                </div>
-                            </div>
                             <?php endforeach; ?>
                         <?php endif; ?>
                     </div>
@@ -868,7 +968,7 @@ if ($selPon) {
             </div>
         </main>
 
-        <footer class="footer">© <?= date('Y') ?> <?= h($appName) ?> • Modern Task List</footer>
+        <footer class="footer">© <?= date('Y') ?> <?= h($appName) ?> • Smart Task List</footer>
     </div>
 
     <script>
@@ -892,14 +992,14 @@ if ($selPon) {
         // View Toggle Functionality
         document.addEventListener('DOMContentLoaded', function() {
             const viewOptions = document.querySelectorAll('.view-option');
-            
+
             viewOptions.forEach(option => {
                 option.addEventListener('click', function() {
                     // Remove active class from all options
                     viewOptions.forEach(opt => opt.classList.remove('active'));
                     // Add active class to clicked option
                     this.classList.add('active');
-                    
+
                     const viewType = this.getAttribute('data-view');
                     // Here you can implement view switching logic
                     console.log('Switching to view:', viewType);
