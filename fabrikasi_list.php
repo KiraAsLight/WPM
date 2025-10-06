@@ -67,7 +67,43 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
     <link rel="stylesheet" href="assets/css/sidebar.css?v=<?= filemtime('assets/css/sidebar.css') ?>">
     <link rel="stylesheet" href="assets/css/layout.css?v=<?= filemtime('assets/css/layout.css') ?>">
     <style>
+        /* Layout Grid - Full Viewport Height */
+        .layout {
+            display: grid;
+            grid-template-areas:
+                "sidebar header"
+                "sidebar content"
+                "sidebar footer";
+            grid-template-columns: 260px 1fr;
+            grid-template-rows: auto 1fr auto;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            grid-area: sidebar;
+            overflow-y: auto;
+        }
+
+        .header {
+            grid-area: header;
+        }
+
+        .content {
+            grid-area: content;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            padding: 24px;
+        }
+
+        .footer {
+            grid-area: footer;
+        }
+
+        /* Page Header */
         .page-header {
+            flex-shrink: 0;
             background: var(--card-bg);
             border: 1px solid var(--border);
             border-radius: 12px;
@@ -146,17 +182,13 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
             background: #047857;
         }
 
+        /* Stats Grid */
         .stats-grid {
+            flex-shrink: 0;
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
+            grid-template-columns: repeat(6, 1fr);
             gap: 16px;
             margin-bottom: 24px;
-        }
-
-        @media (max-width: 768px) {
-            .stats-grid {
-                grid-template-columns: 1fr;
-            }
         }
 
         .stat-card {
@@ -168,19 +200,21 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
         }
 
         .stat-value {
-            font-size: 28px;
+            font-size: 24px;
             font-weight: 700;
             color: var(--text);
             margin-bottom: 4px;
         }
 
         .stat-label {
-            font-size: 12px;
+            font-size: 11px;
             color: var(--muted);
             font-weight: 500;
         }
 
+        /* Success Message */
         .success-msg {
+            flex-shrink: 0;
             background: rgba(34, 197, 94, 0.1);
             border: 1px solid rgba(34, 197, 94, 0.3);
             color: #86efac;
@@ -192,14 +226,20 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
             gap: 8px;
         }
 
+        /* Table Section - Flex Grow */
         .table-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
             background: var(--card-bg);
             border: 1px solid var(--border);
             border-radius: 12px;
             overflow: hidden;
+            min-height: 0;
         }
 
         .section-header-bar {
+            flex-shrink: 0;
             background: #2d3748;
             padding: 16px 24px;
             display: flex;
@@ -214,18 +254,28 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
             color: var(--text);
         }
 
+        /* Table Container - Scrollable */
         .table-container {
-            overflow-x: auto;
+            flex: 1;
+            overflow: auto;
+            position: relative;
+            min-height: 0;
         }
 
+        /* Data Table */
         .data-table {
-            width: 100%;
-            min-width: 1400px;
+            width: auto;
+            min-width: 100%;
             border-collapse: collapse;
+            table-layout: auto;
         }
 
         .data-table thead {
             background: #374151;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
         }
 
         .data-table th {
@@ -236,33 +286,137 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
             font-size: 11px;
             text-transform: uppercase;
             border-bottom: 1px solid var(--border);
+            border-right: 1px solid rgba(255, 255, 255, 0.05);
             white-space: nowrap;
+            vertical-align: middle;
+            background: #374151;
+        }
+
+        .data-table th:last-child {
+            border-right: none;
         }
 
         .data-table td {
-            text-align: center;
-            padding: 12px 16px;
+            padding: 10px 16px;
             color: var(--text);
-            font-size: 13px;
+            font-size: 12px;
             border-bottom: 1px solid var(--border);
+            border-right: 1px solid rgba(255, 255, 255, 0.05);
             vertical-align: middle;
+            white-space: nowrap;
+        }
+
+        .data-table td:last-child {
+            border-right: none;
         }
 
         .data-table tbody tr:hover {
-            background: rgba(255, 255, 255, 0.02);
+            background: rgba(255, 255, 255, 0.03);
         }
 
+        /* Column Specific Widths */
+        .data-table th:nth-child(1),
+        .data-table td:nth-child(1) {
+            width: 50px;
+            min-width: 50px;
+            text-align: center;
+        }
+
+        .data-table td:nth-child(2) {
+            max-width: 150px;
+            text-align: center;
+        }
+
+        .data-table td:nth-child(3) {
+            max-width: 80px;
+            text-align: center;
+        }
+
+        .data-table td:nth-child(4) {
+            max-width: 250px;
+            white-space: normal;
+            word-wrap: break-word;
+            text-align: left;
+        }
+
+        .data-table td:nth-child(5),
+        .data-table td:nth-child(6),
+        .data-table td:nth-child(7) {
+            text-align: center;
+            min-width: 80px;
+        }
+
+        .data-table td:nth-child(8) {
+            min-width: 120px;
+            text-align: center;
+        }
+
+        .data-table td:nth-child(9) {
+            max-width: 120px;
+            text-align: center;
+        }
+
+        .data-table td:nth-child(10),
+        .data-table td:nth-child(11),
+        .data-table td:nth-child(12) {
+            text-align: right;
+            min-width: 80px;
+        }
+
+        .data-table td:nth-child(13) {
+            max-width: 200px;
+            white-space: normal;
+            text-align: left;
+        }
+
+        .data-table td:nth-child(14) {
+            width: 90px;
+            min-width: 90px;
+            text-align: center;
+        }
+
+        /* Scrollbar Styling */
+        .table-container::-webkit-scrollbar {
+            width: 12px;
+            height: 12px;
+        }
+
+        .table-container::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 6px;
+        }
+
+        .table-container::-webkit-scrollbar-thumb {
+            background: rgba(59, 130, 246, 0.6);
+            border-radius: 6px;
+        }
+
+        .table-container::-webkit-scrollbar-thumb:hover {
+            background: rgba(59, 130, 246, 0.9);
+        }
+
+        .table-container::-webkit-scrollbar-corner {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .table-container {
+            scrollbar-width: auto;
+            scrollbar-color: rgba(59, 130, 246, 0.6) rgba(255, 255, 255, 0.08);
+        }
+
+        /* Action Buttons */
         .action-btns {
             display: flex;
-            gap: 8px;
+            gap: 6px;
+            justify-content: center;
         }
 
         .btn-icon {
             background: rgba(255, 255, 255, 0.05);
             border: 1px solid var(--border);
             color: var(--text);
-            width: 32px;
-            height: 32px;
+            width: 28px;
+            height: 28px;
             border-radius: 6px;
             display: flex;
             align-items: center;
@@ -270,6 +424,7 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
             text-decoration: none;
             transition: all 0.2s;
             cursor: pointer;
+            font-size: 12px;
         }
 
         .btn-icon:hover {
@@ -286,8 +441,13 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
             color: #fca5a5;
         }
 
+        /* Empty State */
         .empty-state {
-            text-align: center;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
             padding: 60px 20px;
             color: var(--muted);
         }
@@ -302,59 +462,31 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
             margin-bottom: 20px;
         }
 
-        .table-container::-webkit-scrollbar {
-            height: 8px;
-        }
-
-        .table-container::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 4px;
-        }
-
-        .table-container::-webkit-scrollbar-thumb {
-            background: rgba(147, 197, 253, 0.3);
-            border-radius: 4px;
-        }
-
-        .table-container::-webkit-scrollbar-thumb:hover {
-            background: rgba(147, 197, 253, 0.5);
-        }
-
-        .text-right {
-            text-align: right;
-        }
-
-        .text-center {
-            text-align: center;
-        }
-
-        .progress-display {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
+        /* Progress Bar */
         .progress-bar-container {
-            width: 100%;
-            height: 8px;
+            width: 80px;
+            height: 6px;
             background: rgba(255, 255, 255, 0.1);
-            border-radius: 4px;
+            border-radius: 3px;
             overflow: hidden;
-            flex: 1;
+            display: inline-block;
+            vertical-align: middle;
         }
 
         .progress-bar-fill {
             height: 100%;
             background: linear-gradient(90deg, #10b981, #059669);
-            border-radius: 4px;
+            border-radius: 3px;
             transition: width 0.3s ease;
         }
 
+        /* Badges */
         .badge {
             padding: 4px 8px;
             border-radius: 4px;
-            font-size: 11px;
+            font-size: 10px;
             font-weight: 600;
+            white-space: nowrap;
         }
 
         .bg-success {
@@ -367,6 +499,52 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
             background: rgba(245, 158, 11, 0.2);
             color: #fcd34d;
             border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+
+        /* Text Alignment */
+        .text-left {
+            text-align: left !important;
+        }
+
+        .text-center {
+            text-align: center !important;
+        }
+
+        .text-right {
+            text-align: right !important;
+        }
+
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .stats-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .page-header {
+                flex-direction: column;
+                gap: 16px;
+                align-items: stretch;
+            }
+
+            .header-left {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .header-actions {
+                flex-direction: column;
+            }
+
+            .header-actions .btn {
+                width: 100%;
+                justify-content: center;
+            }
         }
     </style>
 </head>
@@ -453,8 +631,8 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
                     <div class="stat-label">Completion Rate</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value"><?= number_format($totalWeight, 2) ?> kg</div>
-                    <div class="stat-label">Total Weight</div>
+                    <div class="stat-value"><?= number_format($totalWeight, 2) ?></div>
+                    <div class="stat-label">Total Weight (kg)</div>
                 </div>
             </div>
 
@@ -478,20 +656,20 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
                         <table class="data-table">
                             <thead>
                                 <tr>
-                                    <th class="text-center">No</th>
+                                    <th>No</th>
                                     <th>AssyMarking</th>
                                     <th>Rv</th>
                                     <th>Name</th>
-                                    <th class="text-center">Qty</th>
-                                    <th class="text-center">Barang Jadi</th>
-                                    <th class="text-center">Belum Jadi</th>
-                                    <th class="text-center">Progress</th>
+                                    <th>Qty</th>
+                                    <th>Barang<br>Jadi</th>
+                                    <th>Belum<br>Jadi</th>
+                                    <th>Progress</th>
                                     <th>Dimensions</th>
-                                    <th class="text-center">Length (mm)</th>
-                                    <th class="text-center">Weight (kg)</th>
-                                    <th class="text-center">Total Weight (kg)</th>
+                                    <th>Length<br>(mm)</th>
+                                    <th>Weight<br>(kg)</th>
+                                    <th>Total Weight<br>(kg)</th>
                                     <th>Remarks</th>
-                                    <th class="text-center">Aksi</th>
+                                    <th>Aksi</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -501,33 +679,33 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
                                     $progress = $item['progress_calculated'] ?? 0;
                                 ?>
                                     <tr>
-                                        <td class="text-center"><?= h($item['no']) ?></td>
+                                        <td><?= h($item['no']) ?></td>
                                         <td><?= h($item['assy_marking']) ?></td>
                                         <td><?= h($item['rv']) ?></td>
                                         <td><?= h($item['name']) ?></td>
-                                        <td class="text-center"><?= h($item['qty']) ?></td>
-                                        <td class="text-center">
+                                        <td><?= h($item['qty']) ?></td>
+                                        <td>
                                             <span class="badge bg-success"><?= h($barangJadi) ?></span>
                                         </td>
-                                        <td class="text-center">
+                                        <td>
                                             <span class="badge bg-warning"><?= h($barangBelumJadi) ?></span>
                                         </td>
-                                        <td class="text-center">
-                                            <div style="display: flex; align-items: center; gap: 8px;">
-                                                <div class="progress-bar-container" style="width: 80px;">
+                                        <td>
+                                            <div style="display: flex; align-items: center; gap: 8px; justify-content: center;">
+                                                <div class="progress-bar-container">
                                                     <div class="progress-bar-fill" style="width: <?= h($progress) ?>%"></div>
                                                 </div>
-                                                <span style="font-size: 12px; color: var(--muted); min-width: 30px;">
+                                                <span style="font-size: 11px; color: var(--muted); min-width: 35px;">
                                                     <?= h($progress) ?>%
                                                 </span>
                                             </div>
                                         </td>
                                         <td><?= h($item['dimensions']) ?></td>
-                                        <td class="text-center"><?= number_format((float)$item['length_mm'], 2) ?></td>
-                                        <td class="text-center"><?= number_format((float)$item['weight_kg'], 2) ?></td>
-                                        <td class="text-center"><?= number_format((float)$item['total_weight_kg'], 2) ?></td>
+                                        <td><?= number_format((float)$item['length_mm'], 2) ?></td>
+                                        <td><?= number_format((float)$item['weight_kg'], 2) ?></td>
+                                        <td><?= number_format((float)$item['total_weight_kg'], 2) ?></td>
                                         <td><?= h($item['remarks']) ?></td>
-                                        <td class="text-center">
+                                        <td>
                                             <div class="action-btns">
                                                 <a href="fabrikasi_edit.php?id=<?= $item['id'] ?>&pon=<?= urlencode($ponCode) ?>"
                                                     class="btn-icon edit"

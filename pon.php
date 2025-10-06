@@ -29,18 +29,35 @@ if (isset($_GET['delete'])) {
   }
 }
 
-// Muat PON dari database dengan calculated berat
+// Muat PON dari database
 $pons = fetchAll("
-    SELECT *,
-           CASE 
-               WHEN material_type = 'AG25' THEN qty * 25
-               WHEN material_type = 'AG32' THEN qty * 32
-               WHEN material_type = 'AG50' THEN qty * 50
-               ELSE 0
-           END as berat_calculated
+    SELECT * 
     FROM pon 
     ORDER BY project_start DESC, created_at DESC
 ");
+
+// Hitung total weight untuk setiap PON berdasarkan data fabrikasi + logistik workshop
+foreach ($pons as &$pon) {
+    $ponCode = $pon['pon'];
+    
+    // Total weight dari fabrikasi_items
+    $fabrikasiWeight = fetchOne("
+        SELECT COALESCE(SUM(total_weight_kg), 0) as total_weight 
+        FROM fabrikasi_items 
+        WHERE pon = ?
+    ", [$ponCode]);
+    
+    // Total weight dari logistik_workshop  
+    $logistikWeight = fetchOne("
+        SELECT COALESCE(SUM(total_weight_kg), 0) as total_weight 
+        FROM logistik_workshop 
+        WHERE pon = ?
+    ", [$ponCode]);
+    
+    // Total weight = fabrikasi + logistik workshop
+    $pon['berat_calculated'] = (float)$fabrikasiWeight['total_weight'] + (float)$logistikWeight['total_weight'];
+}
+unset($pon); // Hapus reference
 
 // Hitung statistics
 $totalBerat = array_sum(array_map(fn($r) => (float) $r['berat_calculated'], $pons));
