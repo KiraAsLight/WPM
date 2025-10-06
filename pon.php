@@ -19,8 +19,20 @@ $nowEpoch = time();
 // Handle export requests
 if (isset($_GET['export'])) {
   $exportType = $_GET['export'];
-  require_once 'pon_export.php';
+  require_once 'export_pon.php';
   exit;
+}
+
+// Handle import form submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['import_file'])) {
+  $importResult = handleImportFile($_FILES['import_file']);
+  if ($importResult['success']) {
+    header('Location: pon.php?imported=1&count=' . $importResult['count']);
+    exit;
+  } else {
+    header('Location: pon.php?error=import_failed&message=' . urlencode($importResult['message']));
+    exit;
+  }
 }
 
 // Handle delete request first
@@ -178,6 +190,97 @@ function formatDate($date)
   if (!$date) return '-';
   return date('d/m/Y', strtotime($date));
 }
+
+// Function untuk handle import file
+function handleImportFile($file)
+{
+  if ($file['error'] !== UPLOAD_ERR_OK) {
+    return ['success' => false, 'message' => 'Error uploading file'];
+  }
+
+  $allowedTypes = ['text/csv', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'];
+  if (!in_array($file['type'], $allowedTypes)) {
+    return ['success' => false, 'message' => 'Invalid file type. Only CSV and Excel files are allowed.'];
+  }
+
+  $fileExtension = pathinfo($file['name'], PATHINFO_EXTENSION);
+  if (!in_array(strtolower($fileExtension), ['csv', 'xlsx', 'xls'])) {
+    return ['success' => false, 'message' => 'Invalid file extension. Only .csv, .xlsx, .xls files are allowed.'];
+  }
+
+  try {
+    // Untuk simplicity, kita handle CSV dulu
+    // Untuk Excel, butuh library seperti PhpSpreadsheet
+    if (strtolower($fileExtension) === 'csv') {
+      return importFromCSV($file['tmp_name']);
+    } else {
+      return ['success' => false, 'message' => 'Excel import feature coming soon. Please use CSV format.'];
+    }
+  } catch (Exception $e) {
+    return ['success' => false, 'message' => 'Import error: ' . $e->getMessage()];
+  }
+}
+
+function importFromCSV($filePath)
+{
+  $handle = fopen($filePath, 'r');
+  if (!$handle) {
+    return ['success' => false, 'message' => 'Cannot open file'];
+  }
+
+  $importedCount = 0;
+  $errors = [];
+  $firstRow = true;
+
+  while (($data = fgetcsv($handle)) !== FALSE) {
+    if ($firstRow) {
+      $firstRow = false;
+      continue; // Skip header row
+    }
+
+    if (count($data) < 5) continue; // Minimal required fields
+
+    try {
+      $ponData = [
+        'job_no' => $data[0] ?? '',
+        'pon' => $data[1] ?? '',
+        'client' => $data[2] ?? '',
+        'nama_proyek' => $data[3] ?? '',
+        'project_manager' => $data[4] ?? '',
+        'qty' => (int)($data[5] ?? 1),
+        'progress' => (int)($data[6] ?? 0),
+        'date_pon' => $data[7] ? date('Y-m-d', strtotime($data[7])) : null,
+        'date_finish' => $data[8] ? date('Y-m-d', strtotime($data[8])) : null,
+        'status' => $data[9] ?? 'Progress',
+        'alamat_kontrak' => $data[10] ?? '',
+        'no_contract' => $data[11] ?? '',
+        'contract_date' => $data[12] ? date('Y-m-d', strtotime($data[12])) : null,
+        'project_start' => $data[13] ? date('Y-m-d', strtotime($data[13])) : null,
+        'subject' => $data[14] ?? '',
+        'material_type' => $data[15] ?? '',
+        'fabrikasi_imported' => 0,
+        'logistik_imported' => 0,
+      ];
+
+      // Cek duplikasi job_no
+      $existing = fetchOne('SELECT id FROM pon WHERE job_no = ?', [$ponData['job_no']]);
+      if (!$existing) {
+        insert('pon', $ponData);
+        $importedCount++;
+      }
+    } catch (Exception $e) {
+      $errors[] = 'Row ' . ($importedCount + 1) . ': ' . $e->getMessage();
+    }
+  }
+
+  fclose($handle);
+
+  if ($importedCount > 0) {
+    return ['success' => true, 'count' => $importedCount, 'errors' => $errors];
+  } else {
+    return ['success' => false, 'message' => 'No data imported. ' . implode('; ', $errors)];
+  }
+}
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -276,6 +379,26 @@ function formatDate($date)
       transform: translateY(-1px);
     }
 
+    .btn-warning {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #f59e0b;
+      border: 1px solid #fbbf24;
+      color: #fff;
+      text-decoration: none;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+
+    .btn-warning:hover {
+      background: #d97706;
+      transform: translateY(-1px);
+    }
+
     .btn-danger {
       background: #dc2626;
       border-color: #ef4444;
@@ -290,7 +413,7 @@ function formatDate($date)
       background: #b91c1c;
     }
 
-    .btn-warning {
+    .btn-warning-sm {
       background: #f59e0b;
       border-color: #fbbf24;
       padding: 6px 10px;
@@ -314,10 +437,11 @@ function formatDate($date)
       display: flex;
       gap: 6px;
       flex-wrap: wrap;
+      justify-content: flex-end;
     }
 
-    /* Export Dropdown Styles */
-    .export-dropdown {
+    /* Export & Import Dropdown Styles */
+    .action-dropdown {
       position: relative;
       display: inline-block;
     }
@@ -342,25 +466,46 @@ function formatDate($date)
       background: #047857;
     }
 
-    .export-dropdown-content {
+    .import-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #7c3aed;
+      border: 1px solid #8b5cf6;
+      color: #fff;
+      text-decoration: none;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .import-btn:hover {
+      background: #6d28d9;
+    }
+
+    .action-dropdown-content {
       display: none;
       position: absolute;
       background: var(--card-bg);
       border: 1px solid var(--border);
       border-radius: 8px;
-      min-width: 160px;
+      min-width: 180px;
       box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
       z-index: 1000;
       margin-top: 5px;
       overflow: hidden;
+      right: 0;
     }
 
-    .export-dropdown-content.show {
+    .action-dropdown-content.show {
       display: block;
       animation: fadeIn 0.2s ease;
     }
 
-    .export-option {
+    .action-option {
       display: flex;
       align-items: center;
       gap: 8px;
@@ -369,17 +514,18 @@ function formatDate($date)
       text-decoration: none;
       transition: background 0.2s;
       border-bottom: 1px solid var(--border);
+      cursor: pointer;
     }
 
-    .export-option:last-child {
+    .action-option:last-child {
       border-bottom: none;
     }
 
-    .export-option:hover {
+    .action-option:hover {
       background: rgba(255, 255, 255, 0.05);
     }
 
-    .export-option i {
+    .action-option i {
       font-size: 14px;
       width: 16px;
     }
@@ -394,6 +540,105 @@ function formatDate($date)
         opacity: 1;
         transform: translateY(0);
       }
+    }
+
+    /* Import Modal Styles */
+    .import-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 9999;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .import-modal.show {
+      display: flex;
+    }
+
+    .import-modal-content {
+      background: var(--card-bg);
+      border-radius: 12px;
+      padding: 30px;
+      width: 90%;
+      max-width: 500px;
+      border: 1px solid var(--border);
+    }
+
+    .import-modal-header {
+      display: flex;
+      justify-content: between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .import-modal-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .import-modal-close {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 20px;
+      cursor: pointer;
+      padding: 0;
+    }
+
+    .import-modal-close:hover {
+      color: var(--text);
+    }
+
+    .file-upload-area {
+      border: 2px dashed var(--border);
+      border-radius: 8px;
+      padding: 40px 20px;
+      text-align: center;
+      margin-bottom: 20px;
+      transition: border-color 0.3s;
+      cursor: pointer;
+    }
+
+    .file-upload-area:hover {
+      border-color: #3b82f6;
+    }
+
+    .file-upload-area.dragover {
+      border-color: #3b82f6;
+      background: rgba(59, 130, 246, 0.05);
+    }
+
+    .file-upload-icon {
+      font-size: 48px;
+      color: var(--muted);
+      margin-bottom: 16px;
+    }
+
+    .file-upload-text {
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+
+    .file-upload-hint {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .file-input {
+      display: none;
+    }
+
+    .import-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      margin-top: 20px;
     }
 
     /* Enhanced Table Styles */
@@ -714,6 +959,12 @@ function formatDate($date)
       color: #fecaca;
     }
 
+    .warning-notice {
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      color: #fcd34d;
+    }
+
     /* Empty State */
     .empty-state {
       text-align: center;
@@ -736,6 +987,58 @@ function formatDate($date)
     .empty-state p {
       font-size: 14px;
       margin-bottom: 20px;
+    }
+
+    /* HAPUS atau COMMENT bagian ini jika ada: */
+    .right-actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      justify-content: flex-end;
+      /* HAPUS BARIS INI */
+    }
+
+    /* HAPUS atau COMMENT bagian ini jika ada: */
+    .hd {
+      display: flex;
+      justify-content: between;
+      /* INI SALAH, harusnya space-between */
+      align-items: center;
+    }
+
+    /* Header Layout Styles */
+    .header-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+    }
+
+    .title-section h2 {
+      margin: 0;
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .actions-section {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    /* Pastikan chevron konsisten */
+    .export-btn i.bi-chevron-down,
+    .import-btn i.bi-chevron-down {
+      font-size: 12px;
+      margin-left: 4px;
+    }
+
+    /* Hapus atau update class right-actions yang lama */
+    .right-actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
     }
   </style>
 </head>
@@ -852,27 +1155,42 @@ function formatDate($date)
 
       <section class="section">
         <div class="hd">
-          <div style="display: flex; justify-content: between; align-items: center;">
-            <span>PROJECT LIST</span>
-            <div style="display: flex; gap: 12px; align-items: center;">
+          <div class="header-content">
+            <div class="title-section">
+              <h2>PROJECT LIST</h2>
+            </div>
+            <div class="actions-section">
               <!-- Export Dropdown -->
-              <div class="export-dropdown">
+              <div class="action-dropdown">
                 <button class="export-btn" onclick="toggleExportDropdown()">
-                  <i class="bi bi-download"></i> Export Data
-                  <i class="bi bi-chevron-down" style="font-size: 12px; margin-left: 4px;"></i>
+                  <i class="bi bi-download"></i> Export
+                  <i class="bi bi-chevron-down"></i>
                 </button>
-                <div class="export-dropdown-content" id="exportDropdown">
-                  <a href="pon.php?export=excel" class="export-option" onclick="showExportLoading('Excel')">
-                    <i class="bi bi-file-earmark-excel" style="color: #21a366;"></i>
-                    Export Excel (.xlsx)
+                <div class="action-dropdown-content" id="exportDropdown">
+                  <a href="pon.php?export=excel" class="action-option" onclick="showExportLoading('Excel')">
+                    <i class="bi bi-file-earmark-excel"></i> Export Excel
                   </a>
-                  <a href="pon.php?export=pdf" class="export-option" onclick="showExportLoading('PDF')">
-                    <i class="bi bi-file-earmark-pdf" style="color: #f40f02;"></i>
-                    Export PDF (.pdf)
+                  <a href="pon.php?export=pdf" class="action-option" onclick="showExportLoading('PDF')">
+                    <i class="bi bi-file-earmark-pdf"></i> Export PDF
                   </a>
-                  <a href="pon.php?export=csv" class="export-option" onclick="showExportLoading('CSV')">
-                    <i class="bi bi-file-earmark-text" style="color: #10b981;"></i>
-                    Export CSV (.csv)
+                  <a href="pon.php?export=csv" class="action-option" onclick="showExportLoading('CSV')">
+                    <i class="bi bi-file-earmark-text"></i> Export CSV
+                  </a>
+                </div>
+              </div>
+
+              <!-- Import Dropdown -->
+              <div class="action-dropdown">
+                <button class="import-btn" onclick="toggleImportDropdown()">
+                  <i class="bi bi-upload"></i> Import
+                  <i class="bi bi-chevron-down"></i>
+                </button>
+                <div class="action-dropdown-content" id="importDropdown">
+                  <div class="action-option" onclick="showImportModal()">
+                    <i class="bi bi-file-earmark-plus"></i> Import Data
+                  </div>
+                  <a href="pon_template.php" class="action-option">
+                    <i class="bi bi-download"></i> Download Template
                   </a>
                 </div>
               </div>
@@ -902,10 +1220,24 @@ function formatDate($date)
               Project berhasil diupdate.
             </div>
           <?php endif; ?>
-          <?php if (isset($_GET['error']) && $_GET['error'] === 'delete_failed'): ?>
-            <div class="notice error-notice">
+          <?php if (isset($_GET['imported'])): ?>
+            <div class="notice">
+              <i class="bi bi-check-circle"></i>
+              <?= $_GET['count'] ?> project berhasil diimport.
+            </div>
+          <?php endif; ?>
+          <?php if (isset($_GET['error'])): ?>
+            <div class="error-notice">
               <i class="bi bi-exclamation-circle"></i>
-              Gagal menghapus project.
+              <?php
+              if ($_GET['error'] === 'delete_failed') {
+                echo 'Gagal menghapus project.';
+              } elseif ($_GET['error'] === 'import_failed' && isset($_GET['message'])) {
+                echo 'Gagal import: ' . h($_GET['message']);
+              } else {
+                echo 'Terjadi kesalahan.';
+              }
+              ?>
             </div>
           <?php endif; ?>
 
@@ -924,7 +1256,7 @@ function formatDate($date)
                   <th>PROGRESS</th>
                   <th>TIMELINE</th>
                   <th>STATUS</th>
-                  <th>ACTIONS</th>
+                  <th style="text-align: right;">ACTIONS</th>
                 </tr>
               </thead>
               <tbody>
@@ -934,10 +1266,15 @@ function formatDate($date)
                       <div class="empty-state">
                         <i class="bi bi-journal-text"></i>
                         <h3>No Projects Found</h3>
-                        <p>Get started by creating your first project</p>
-                        <a href="pon_new.php" class="btn-primary">
-                          <i class="bi bi-plus-circle"></i> Create Project
-                        </a>
+                        <p>Get started by creating your first project or import existing data</p>
+                        <div style="display: flex; gap: 10px; justify-content: center;">
+                          <a href="pon_new.php" class="btn-primary">
+                            <i class="bi bi-plus-circle"></i> Create Project
+                          </a>
+                          <button class="btn-warning" onclick="showImportModal()">
+                            <i class="bi bi-upload"></i> Import Data
+                          </button>
+                        </div>
                       </div>
                     </td>
                   </tr>
@@ -1042,7 +1379,7 @@ function formatDate($date)
                           <a href="pon_view.php?job_no=<?= urlencode($r['job_no']) ?>" class="btn-info" title="View Details">
                             <i class="bi bi-eye"></i>
                           </a>
-                          <a href="pon_edit.php?job_no=<?= urlencode($r['job_no']) ?>" class="btn-warning" title="Edit">
+                          <a href="pon_edit.php?job_no=<?= urlencode($r['job_no']) ?>" class="btn-warning-sm" title="Edit">
                             <i class="bi bi-pencil"></i>
                           </a>
                           <a href="tasklist.php?pon=<?= urlencode($r['pon']) ?>" class="btn-primary" title="Tasks" style="padding: 6px 10px;">
@@ -1067,6 +1404,44 @@ function formatDate($date)
     </main>
 
     <footer class="footer">© <?= date('Y') ?> <?= h($appName) ?> • Project Management</footer>
+  </div>
+
+  <!-- Import Modal -->
+  <div class="import-modal" id="importModal">
+    <div class="import-modal-content">
+      <div class="import-modal-header">
+        <h3 class="import-modal-title">Import Project Data</h3>
+        <button class="import-modal-close" onclick="hideImportModal()">&times;</button>
+      </div>
+
+      <form id="importForm" method="post" enctype="multipart/form-data">
+        <div class="file-upload-area" id="fileUploadArea" onclick="document.getElementById('importFile').click()">
+          <div class="file-upload-icon">
+            <i class="bi bi-cloud-upload"></i>
+          </div>
+          <div class="file-upload-text">Click to upload or drag and drop</div>
+          <div class="file-upload-hint">CSV, Excel (.xlsx, .xls) files only (Max 10MB)</div>
+          <input type="file" id="importFile" name="import_file" class="file-input" accept=".csv,.xlsx,.xls" required onchange="handleFileSelect(this)">
+        </div>
+
+        <div id="selectedFile" style="display: none; margin-bottom: 20px;">
+          <div style="display: flex; align-items: center; gap: 10px; padding: 10px; background: rgba(59, 130, 246, 0.1); border-radius: 6px;">
+            <i class="bi bi-file-earmark-text" style="color: #3b82f6;"></i>
+            <span id="fileName" style="flex: 1;"></span>
+            <button type="button" onclick="clearFile()" style="background: none; border: none; color: var(--muted); cursor: pointer;">
+              <i class="bi bi-x"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="import-actions">
+          <button type="button" class="btn-secondary" onclick="hideImportModal()">Cancel</button>
+          <button type="submit" class="btn-success" id="importSubmit" disabled>
+            <i class="bi bi-upload"></i> Import Data
+          </button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <!-- Export Loading Modal -->
@@ -1120,18 +1495,91 @@ function formatDate($date)
     }
 
     // Export Dropdown functionality
+    // Export Dropdown functionality
     function toggleExportDropdown() {
       const dropdown = document.getElementById('exportDropdown');
       dropdown.classList.toggle('show');
     }
 
-    // Close dropdown when clicking outside
-    document.addEventListener('click', function(event) {
-      const dropdown = document.getElementById('exportDropdown');
-      const exportBtn = document.querySelector('.export-btn');
+    function toggleImportDropdown() {
+      const dropdown = document.getElementById('importDropdown');
+      dropdown.classList.toggle('show');
+    }
 
-      if (!exportBtn.contains(event.target) && !dropdown.contains(event.target)) {
-        dropdown.classList.remove('show');
+    // Close dropdowns when clicking outside
+    document.addEventListener('click', function(event) {
+      const exportDropdown = document.getElementById('exportDropdown');
+      const exportBtn = document.querySelector('.export-btn');
+      const importDropdown = document.getElementById('importDropdown');
+      const importBtn = document.querySelector('.import-btn');
+
+      if (!exportBtn.contains(event.target) && !exportDropdown.contains(event.target)) {
+        exportDropdown.classList.remove('show');
+      }
+
+      if (!importBtn.contains(event.target) && !importDropdown.contains(event.target)) {
+        importDropdown.classList.remove('show');
+      }
+    });
+
+    // Import Modal functionality
+    function showImportModal() {
+      document.getElementById('importModal').classList.add('show');
+      document.getElementById('importDropdown').classList.remove('show');
+    }
+
+    function hideImportModal() {
+      document.getElementById('importModal').classList.remove('show');
+      clearFile();
+    }
+
+    function handleFileSelect(input) {
+      const file = input.files[0];
+      if (file) {
+        const fileName = document.getElementById('fileName');
+        const selectedFile = document.getElementById('selectedFile');
+        const importSubmit = document.getElementById('importSubmit');
+
+        fileName.textContent = file.name;
+        selectedFile.style.display = 'block';
+        importSubmit.disabled = false;
+
+        // Validate file size (10MB max)
+        if (file.size > 10 * 1024 * 1024) {
+          alert('File size exceeds 10MB limit');
+          clearFile();
+          return;
+        }
+      }
+    }
+
+    function clearFile() {
+      document.getElementById('importFile').value = '';
+      document.getElementById('selectedFile').style.display = 'none';
+      document.getElementById('importSubmit').disabled = true;
+    }
+
+    // Drag and drop functionality
+    const fileUploadArea = document.getElementById('fileUploadArea');
+
+    fileUploadArea.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      this.classList.add('dragover');
+    });
+
+    fileUploadArea.addEventListener('dragleave', function(e) {
+      e.preventDefault();
+      this.classList.remove('dragover');
+    });
+
+    fileUploadArea.addEventListener('drop', function(e) {
+      e.preventDefault();
+      this.classList.remove('dragover');
+
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        document.getElementById('importFile').files = files;
+        handleFileSelect(document.getElementById('importFile'));
       }
     });
 
@@ -1151,6 +1599,13 @@ function formatDate($date)
     // Hide loading when page is about to unload (export starting)
     window.addEventListener('beforeunload', function() {
       document.getElementById('exportLoading').style.display = 'none';
+    });
+
+    // Close modal when clicking outside
+    document.getElementById('importModal').addEventListener('click', function(e) {
+      if (e.target === this) {
+        hideImportModal();
+      }
     });
 
     // Charts
