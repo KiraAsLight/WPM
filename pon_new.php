@@ -152,22 +152,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
       $insertedId = insert('pon', $data);
 
-      // Create default tasks for each division
-      $divisions = ['Engineering', 'Logistik', 'Pabrikasi', 'Purchasing'];
-      foreach ($divisions as $division) {
-        $taskData = [
-          'pon' => $old['pon'],
-          'division' => $division,
-          'title' => 'Task awal - ' . $division,
-          'assignee' => '',
-          'priority' => 'Medium',
-          'progress' => 0,
-          'status' => 'To Do',
-          'start_date' => date('Y-m-d', strtotime($old['project_start'])),
-          'due_date' => $old['date_finish'] ? date('Y-m-d', strtotime($old['date_finish'])) : null,
-        ];
-        insert('tasks', $taskData);
-      }
+      // // Create default tasks for each division
+      // $divisions = ['Engineering', 'Logistik', 'Pabrikasi', 'Purchasing'];
+      // foreach ($divisions as $division) {
+      //   $taskData = [
+      //     'pon' => $old['pon'],
+      //     'division' => $division,
+      //     'title' => 'Task awal - ' . $division,
+      //     'assignee' => '',
+      //     'priority' => 'Medium',
+      //     'progress' => 0,
+      //     'status' => 'To Do',
+      //     'start_date' => date('Y-m-d', strtotime($old['project_start'])),
+      //     'due_date' => $old['date_finish'] ? date('Y-m-d', strtotime($old['date_finish'])) : null,
+      //   ];
+      //   insert('tasks', $taskData);
+      // }
 
       header('Location: pon.php?added=1');
       exit;
