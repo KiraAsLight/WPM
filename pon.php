@@ -16,6 +16,62 @@ $activeMenu = 'PON';
 $server = $_SERVER['SERVER_SOFTWARE'] ?? 'Apache';
 $nowEpoch = time();
 
+// ✅ TAMBAHKAN: Fungsi getIntegratedProgress dari tasklist.php
+function getIntegratedProgress($ponCode)
+{
+  static $cache = [];
+
+  if (isset($cache[$ponCode])) {
+    return $cache[$ponCode];
+  }
+
+  $tasks = fetchAll('SELECT * FROM tasks WHERE pon = ?', [$ponCode]);
+  $fabrikasiItems = fetchAll('SELECT * FROM fabrikasi_items WHERE pon = ?', [$ponCode]);
+  $logistikWorkshopItems = fetchAll('SELECT * FROM logistik_workshop WHERE pon = ?', [$ponCode]);
+  $logistikSiteItems = fetchAll('SELECT * FROM logistik_site WHERE pon = ?', [$ponCode]);
+
+  $completedItems = 0;
+  $totalItems = 0;
+
+  // ✅ LOGIC TASKS: Status "Done" = 100% progress
+  foreach ($tasks as $task) {
+    $totalItems++;
+    if (strtolower($task['status'] ?? '') === 'done') {
+      $completedItems++;
+    }
+  }
+
+  // ✅ LOGIC FABRIKASI: Progress 100% = completed
+  foreach ($fabrikasiItems as $item) {
+    $totalItems++;
+    if (($item['progress_calculated'] ?? 0) == 100) {
+      $completedItems++;
+    }
+  }
+
+  // ✅ LOGIC LOGISTIK WORKSHOP: Status "Terkirim" = completed
+  foreach ($logistikWorkshopItems as $item) {
+    $totalItems++;
+    if ($item['status'] === 'Terkirim') {
+      $completedItems++;
+    }
+  }
+
+  // ✅ LOGIC LOGISTIK SITE: Status "Diterima" = completed
+  foreach ($logistikSiteItems as $item) {
+    $totalItems++;
+    if ($item['status'] === 'Diterima') {
+      $completedItems++;
+    }
+  }
+
+  // Hitung persentase berdasarkan item yang completed
+  $progress = $totalItems > 0 ? (int)round(($completedItems / $totalItems) * 100) : 0;
+
+  $cache[$ponCode] = $progress;
+  return $progress;
+}
+
 // Handle export requests
 if (isset($_GET['export'])) {
   $exportType = $_GET['export'];
@@ -54,6 +110,13 @@ $pons = fetchAll("
     FROM pon 
     ORDER BY project_start DESC, created_at DESC
 ");
+
+// ✅ PERBAIKAN: Hitung progress terintegrasi untuk setiap PON
+foreach ($pons as &$pon) {
+  $ponCode = $pon['pon'];
+  $pon['integrated_progress'] = getIntegratedProgress($ponCode);
+}
+unset($pon);
 
 // OPTIMIZED: Hitung total weight dengan efficient queries
 try {
@@ -101,7 +164,9 @@ try {
 
 // Hitung statistics
 $totalBerat = array_sum(array_map(fn($r) => (float) $r['berat_calculated'], $pons));
-$avgProgress = count($pons) > 0 ? (int) round(array_sum(array_map(fn($r) => (int) $r['progress'], $pons)) / count($pons)) : 0;
+// ✅ PERBAIKAN: Gunakan integrated progress untuk avg progress
+$progressValues = array_map(fn($r) => (int) $r['integrated_progress'], $pons);
+$avgProgress = count($progressValues) > 0 ? (int) round(array_sum($progressValues) / count($progressValues)) : 0;
 
 // Hitung status distribution
 $statusCounts = [
@@ -1328,12 +1393,14 @@ function importFromCSV($filePath)
                       <td>
                         <div class="progress-container">
                           <div class="progress-header">
-                            <span class="progress-percent"><?= (int)$r['progress'] ?>%</span>
+                            <!-- ✅ PERBAIKAN: Gunakan integrated_progress bukan progress dari database -->
+                            <span class="progress-percent"><?= $r['integrated_progress'] ?>%</span>
                             <span class="progress-label">Complete</span>
                           </div>
                           <div class="progress-bar">
-                            <div class="progress-fill" style="width: <?= (int)$r['progress'] ?>%; 
-                              background: <?= getProgressColor($r['progress']) ?>"></div>
+                            <!-- ✅ PERBAIKAN: Gunakan integrated_progress -->
+                            <div class="progress-fill" style="width: <?= $r['integrated_progress'] ?>%; 
+        background: <?= getProgressColor($r['integrated_progress']) ?>"></div>
                           </div>
                         </div>
                       </td>
