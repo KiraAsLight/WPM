@@ -1,58 +1,60 @@
-/* Layout grid: sidebar + header + content
-   - Sidebar tetap pada tempatnya (sticky)
-   - Hanya area konten yang dapat di-scroll
-*/
+/* Layout grid: sidebar + header + content */
 .layout {
-   display: grid;
-   grid-template-columns: 260px 1fr;
-   grid-template-rows: auto 1fr auto;
-   height: 100vh;
-   overflow: hidden
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  grid-template-rows: auto 1fr auto;
+  min-height: 100vh;
+  overflow: hidden;
 }
 
-/* Sidebar minimal agar tetap di tempat, gaya visual lengkap idealnya di sidebar.css */
 .sidebar {
-   grid-row: 1 / span 3;
-   position: sticky;
-   top: 0
+  grid-row: 1 / span 3;
+  position: sticky;
+  top: 0;
 }
 
 /* Header tetap di atas kolom konten */
 .header {
-   grid-column: 2;
-   background: rgba(255, 255, 255, .02);
-   border-bottom: 1px solid var(--border);
-   backdrop-filter: saturate(140%) blur(6px);
-   display: flex;
-   align-items: center;
-   justify-content: space-between;
-   padding: 18px 22px;
-   z-index: 5
+  grid-column: 2;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: saturate(140%) blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  z-index: 5;
+  position: sticky;
+  top: 0;
 }
 
 .header .title {
-   font-weight: 800;
-   letter-spacing: .3px;
-   font-size: 20px
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--text);
+  letter-spacing: -0.5px;
 }
 
 .header .meta {
-   display: flex;
-   gap: 14px;
-   color: var(--muted);
-   font-size: 12px
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 /* Konten: area yang dapat di-scroll */
 .content {
-   grid-column: 2;
-   padding: 18px;
-   display: flex;
-   flex-direction: column;
-   gap: 18px;
-   overflow: auto;
-   min-height: 0
+  grid-column: 2;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  overflow: auto;
+  min-height: 0;
+  background: var(--bg);
 }
+
 
 /* Komponen umum */
 .grid-3 {
@@ -187,11 +189,11 @@ tr:hover td {
 .brand .logo {
    flex: 0 0 160px;
    height: 50px;
-   background-image: url('../img/Logo.jpg');
+   background-image: url('../img/logo.png');
    background-repeat: no-repeat;
    background-size: contain;
    background-position: left center;
-   border-radius: 8px;
+   border-radius: 10px;
    box-shadow: none;
    background-color: transparent
 }

@@ -1,15 +1,16 @@
--- SQL script to create a user table for authentication
+-- Hapus roles lama dan buat yang baru
+DELETE FROM roles;
 
-CREATE TABLE IF NOT EXISTS users (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  username VARCHAR(50) NOT NULL UNIQUE,
-  password_hash VARCHAR(255) NOT NULL,
-  full_name VARCHAR(100),
-  email VARCHAR(100),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+-- Insert roles sesuai kebutuhan
+INSERT INTO roles (id, name, description, permissions) VALUES
+(1, 'admin', 'Administrator Full Access', '["*"]'),
+(2, 'engineering', 'Engineering Department', '["project.view", "task.view", "task.create", "task.edit", "task.edit_own", "report.view"]'),
+(3, 'purchasing', 'Purchasing Department', '["project.view", "task.view", "task.create", "task.edit", "task.edit_own", "report.view"]'),
+(4, 'qc', 'Quality Control Department', '["project.view", "task.view", "task.create", "task.edit", "task.edit_own", "report.view"]'),
+(5, 'pabrikasi', 'Pabrikasi Department', '["project.view", "task.view", "task.create", "task.edit", "task.edit_own", "report.view"]'),
+(6, 'sipil', 'Pekerjaan Sipil Department', '["project.view", "task.view", "task.create", "task.edit", "task.edit_own", "report.view"]'),
+(7, 'logistik', 'Logistik Department', '["project.view", "task.view", "task.create", "task.edit", "task.edit_own", "report.view"]'),
+(8, 'viewer', 'View Only - No Edit', '["project.view", "task.view", "report.view"]');
 
--- Insert user adminwgj with password wgj@2025#
--- Password hash generated using PHP password_hash('wgj@2025#', PASSWORD_DEFAULT)
-INSERT INTO users (username, password_hash, full_name, email) VALUES
-('adminwgj', '$2y$10$i2Z.mAMDMyo6xmB5Lbj/lOdbs3i081MymZ..LXWSqNROGfcBnx2Pi', 'Administrator WGJ', 'adminwgj@example.com');
+-- Update user admin yang sudah ada
+UPDATE users SET role_id = 1 WHERE username = 'adminwgj';
