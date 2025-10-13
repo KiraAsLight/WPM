@@ -266,7 +266,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         .progress-bar-preview {
-            width: 100px;
+            width: 100%;
             height: 6px;
             background: rgba(255, 255, 255, 0.1);
             border-radius: 3px;
@@ -548,7 +548,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <div class="field">
                             <label class="label" for="progress">Progress (%)</label>
                             <div class="progress-container">
-                                <input class="input progress-input" type="range" id="progress" name="progress"
+                                <input class="input progress-input" type="hidden" id="progress" name="progress"
                                     min="0" max="100" value="<?= h($old['progress']) ?>" readonly
                                     oninput="updateProgressPreview(this.value)">
                                 <div class="progress-bar-preview">

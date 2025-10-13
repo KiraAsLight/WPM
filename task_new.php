@@ -326,7 +326,7 @@ $defaultVendors = ['PT Duta Hita Jaya', 'PT Maja Makmur', 'PT Citra Baja'];
         .textarea:focus {
             outline: none;
             border-color: #3b82f6;
-            background: rgba(255, 255, 255, 0.08);
+            background: #0d142a;
         }
 
         .textarea {

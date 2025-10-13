@@ -75,7 +75,7 @@ function getIntegratedProgress($ponCode)
 // Handle export requests
 if (isset($_GET['export'])) {
   $exportType = $_GET['export'];
-  require_once 'export_pon.php';
+  require_once 'pon_export.php';
   exit;
 }
 
@@ -1125,9 +1125,6 @@ function importFromCSV($filePath)
         <a class="<?= $activeMenu === 'Task List' ? 'active' : '' ?>" href="tasklist.php">
           <span class="icon bi-list-check"></span> Task List
         </a>
-        <a class="<?= $activeMenu === 'Progres Divisi' ? 'active' : '' ?>" href="progres_divisi.php">
-          <span class="icon bi-bar-chart"></span> Progress Divisi
-        </a>
         <a href="logout.php">
           <span class="icon bi-box-arrow-right"></span> Logout
         </a>
@@ -1520,6 +1517,18 @@ function importFromCSV($filePath)
     </div>
   </div>
 
+  <?php if (isset($_GET['added'])): ?>
+    <div class="notice">
+      <i class="bi bi-check-circle"></i>
+      Project baru berhasil ditambahkan.
+      <?php if (isset($_GET['email']) && $_GET['email'] === 'sent'): ?>
+        <br><small style="color: #86efac;">📧 Notifikasi email telah dikirim</small>
+      <?php elseif (isset($_GET['email']) && $_GET['email'] === 'failed'): ?>
+        <br><small style="color: #fecaca;">⚠️ Gagal mengirim notifikasi email</small>
+      <?php endif; ?>
+    </div>
+  <?php endif; ?>
+
   <style>
     @keyframes spin {
       0% {
@@ -1682,7 +1691,7 @@ function importFromCSV($filePath)
       const statusChart = new Chart(statusCtx, {
         type: 'doughnut',
         data: {
-          labels: ['In Progress', 'Completed', 'Pending', 'Delayed'],
+          labels: ['Progress', 'Completed', 'Pending', 'Delayed'],
           datasets: [{
             data: [<?= $statusCounts['Progress'] ?>, <?= $statusCounts['Selesai'] ?>, <?= $statusCounts['Pending'] ?>, <?= $statusCounts['Delayed'] ?>],
             backgroundColor: ['#f59e0b', '#10b981', '#6b7280', '#ef4444'],

@@ -260,6 +260,7 @@ function handleFileUpload($file, $type = 'files')
         .textarea:focus {
             outline: none;
             border-color: #3b82f6;
+            background: #0d142a;            
         }
 
         .textarea {

@@ -677,9 +677,6 @@ function formatWeight($weight)
                 <a class="<?= $activeMenu === 'Task List' ? 'active' : '' ?>" href="tasklist.php">
                     <span class="icon bi-list-check"></span> Task List
                 </a>
-                <a class="<?= $activeMenu === 'Progres Divisi' ? 'active' : '' ?>" href="progres_divisi.php">
-                    <span class="icon bi-bar-chart"></span> Progress Divisi
-                </a>
                 <a href="logout.php">
                     <span class="icon bi-box-arrow-right"></span> Logout
                 </a>

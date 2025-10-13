@@ -1,5 +1,5 @@
 <?php
-// File: export_pon.php
+// File: pon_export.php
 
 declare(strict_types=1);
 
@@ -13,20 +13,24 @@ require_once 'config.php';
 
 $exportType = $_GET['export'] ?? '';
 
-// Load data PON
+// INCLUDE pon.php untuk menggunakan function yang sudah ada
+require_once 'pon.php';
+
+// Load data PON dengan progress terintegrasi
 $pons = fetchAll("
-    SELECT *,
-           CASE 
-               WHEN material_type = 'AG25' THEN qty * 25
-               WHEN material_type = 'AG32' THEN qty * 32
-               WHEN material_type = 'AG50' THEN qty * 50
-               ELSE 0
-           END as berat_calculated
-    FROM pon 
-    ORDER BY project_start DESC, created_at DESC
+    SELECT p.* 
+    FROM pon p 
+    ORDER BY p.project_start DESC, p.created_at DESC
 ");
 
-// Hitung berat untuk setiap PON
+// Hitung progress terintegrasi untuk setiap PON
+foreach ($pons as &$pon) {
+    $ponCode = $pon['pon'];
+    $pon['integrated_progress'] = getIntegratedProgress($ponCode);
+}
+unset($pon);
+
+// Hitung berat
 $ponCodes = array_column($pons, 'pon');
 if (!empty($ponCodes)) {
     $placeholders = str_repeat('?,', count($ponCodes) - 1) . '?';
@@ -59,8 +63,25 @@ if (!empty($ponCodes)) {
 
 function formatDateExport($date)
 {
-    if (!$date) return '-';
+    if (!$date || $date == '0000-00-00') return '-';
     return date('d/m/Y', strtotime($date));
+}
+
+function getStatusColor($status)
+{
+    $status = strtolower($status);
+    switch ($status) {
+        case 'selesai':
+            return '#10b981';
+        case 'progress':
+            return '#3b82f6';
+        case 'pending':
+            return '#f59e0b';
+        case 'delayed':
+            return '#ef4444';
+        default:
+            return '#6b7280';
+    }
 }
 
 switch ($exportType) {
@@ -80,158 +101,411 @@ switch ($exportType) {
 
 function exportExcel($data)
 {
-    header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    header('Content-Disposition: attachment; filename="pon_data_' . date('Y-m-d') . '.xlsx"');
+    header('Content-Type: application/vnd.ms-excel');
+    header('Content-Disposition: attachment; filename="PON_Data_' . date('Y-m-d_H-i') . '.xls"');
 
-    // Simple Excel export using HTML table (for basic functionality)
-    // For advanced Excel features, consider using PhpSpreadsheet library
+    $companyLogo = '/assets/img/Logo.jpg';
 
-    echo '<table border="1">';
-    echo '<tr><th colspan="10" style="background: #3b82f6; color: white; padding: 10px; font-size: 16px;">PROJECT ORDER NOTIFICATION (PON) DATA</th></tr>';
-    echo '<tr><th colspan="10" style="padding: 5px;">Generated: ' . date('d/m/Y H:i:s') . '</th></tr>';
-    echo '<tr style="background: #f8f9fa;">';
-    echo '<th>Job No</th><th>PON</th><th>Project Name</th><th>Client</th><th>Location</th>';
-    echo '<th>Material</th><th>QTY</th><th>Weight (Kg)</th><th>Progress</th><th>Status</th>';
-    echo '</tr>';
+    echo "<!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset='UTF-8'>
+        <title>PON Data Export</title>
+        <style>
+            /* ... (same Excel styles as before) ... */
+        </style>
+    </head>
+    <body>
+        <div class='header'>
+            <div class='company-info'>
+                <div class='logo'>
+                    <img src='" . $companyLogo . "' alt='Company Logo' style='max-width: 120px; max-height: 60px;'>
+                </div>
+                <div class='company-details'>
+                    <div class='company-name'>" . APP_NAME . "</div>
+                    <div class='company-address'>Project Management System</div>
+                </div>
+            </div>
+            <div class='report-title'>PROJECT ORDER NOTIFICATION (PON) REPORT</div>
+            <div class='report-info'>Generated on: " . date('d F Y H:i:s') . "</div>
+            <div class='report-info'>Total Projects: " . count($data) . "</div>
+        </div>
+
+        <table>
+            <thead>
+                <tr>
+                    <th width='80'>Job No</th>
+                    <th width='100'>PON Code</th>
+                    <th width='200'>Project Name</th>
+                    <th width='120'>Client</th>
+                    <th width='100'>Material</th>
+                    <th width='60' class='text-center'>QTY</th>
+                    <th width='80' class='text-center'>Weight (Kg)</th>
+                    <th width='100' class='text-center'>Progress</th>
+                    <th width='90' class='text-center'>Status</th>
+                    <th width='80' class='text-center'>Start Date</th>
+                    <th width='80' class='text-center'>PON Date</th>
+                </tr>
+            </thead>
+            <tbody>";
+
+    $totalWeight = 0;
+    $statusCounts = ['Selesai' => 0, 'Progress' => 0, 'Pending' => 0, 'Delayed' => 0];
 
     foreach ($data as $row) {
-        echo '<tr>';
-        echo '<td>' . h($row['job_no']) . '</td>';
-        echo '<td>' . h($row['pon']) . '</td>';
-        echo '<td>' . h($row['nama_proyek']) . '</td>';
-        echo '<td>' . h($row['client']) . '</td>';
-        echo '<td>' . h($row['alamat_kontrak']) . '</td>';
-        echo '<td>' . h($row['material_type']) . '</td>';
-        echo '<td>' . h($row['qty']) . '</td>';
-        echo '<td>' . h($row['berat_calculated']) . '</td>';
-        echo '<td>' . h($row['progress']) . '%</td>';
-        echo '<td>' . h($row['status']) . '</td>';
-        echo '</tr>';
+        $status = $row['status'] ?: 'Progress';
+        $statusColor = getStatusColor($status);
+        $progressColor = getStatusColor($row['integrated_progress'] >= 90 ? 'Selesai' : ($row['integrated_progress'] >= 70 ? 'Progress' : ($row['integrated_progress'] >= 50 ? 'Pending' : 'Delayed')));
+
+        if (isset($statusCounts[$status])) {
+            $statusCounts[$status]++;
+        }
+        $totalWeight += (float)$row['berat_calculated'];
+
+        echo "<tr>
+            <td class='font-bold'>" . h($row['job_no']) . "</td>
+            <td>" . h($row['pon']) . "</td>
+            <td>" . h($row['nama_proyek']) . "</td>
+            <td>" . h($row['client']) . "</td>
+            <td>" . h($row['material_type']) . "</td>
+            <td class='text-center'>" . h($row['qty']) . "</td>
+            <td class='text-right'>" . number_format($row['berat_calculated'], 2) . "</td>
+            <td>
+                <div style='margin-bottom: 4px; font-size: 11px; font-weight: bold;'>" . $row['integrated_progress'] . "%</div>
+                <div class='progress-bar'>
+                    <div class='progress-fill' style='width: " . $row['integrated_progress'] . "%; background: " . $progressColor . ";'></div>
+                </div>
+            </td>
+            <td class='text-center'>
+                <span class='status-badge' style='background: " . $statusColor . "; color: white;'>" . h($status) . "</span>
+            </td>
+            <td class='text-center'>" . formatDateExport($row['project_start']) . "</td>
+            <td class='text-center'>" . formatDateExport($row['date_pon']) . "</td>
+        </tr>";
     }
 
-    echo '</table>';
+    echo "</tbody>
+        </table>
+
+        <div class='summary'>
+            <div class='summary-row'>
+                <span class='font-bold'>TOTAL PROJECTS:</span>
+                <span class='font-bold'>" . count($data) . "</span>
+            </div>
+            <div class='summary-row'>
+                <span>TOTAL WEIGHT:</span>
+                <span class='font-bold'>" . number_format($totalWeight, 2) . " kg</span>
+            </div>
+            <div class='summary-row'>
+                <span>STATUS DISTRIBUTION:</span>
+                <span>
+                    Selesai: " . $statusCounts['Selesai'] . " | 
+                    Progress: " . $statusCounts['Progress'] . " | 
+                    Pending: " . $statusCounts['Pending'] . " | 
+                    Delayed: " . $statusCounts['Delayed'] . "
+                </span>
+            </div>
+            <div class='summary-row'>
+                <span>AVERAGE PROGRESS:</span>
+                <span class='font-bold'>" . (count($data) > 0 ? round(array_sum(array_column($data, 'integrated_progress')) / count($data)) : 0) . "%</span>
+            </div>
+        </div>
+
+        <div class='footer'>
+            <p>© " . date('Y') . " " . APP_NAME . " - Project Management System</p>
+            <p>This report was generated automatically from the system</p>
+        </div>
+    </body>
+    </html>";
     exit;
 }
 
 function exportPDF($data)
 {
-    // Simple PDF export using HTML (for basic functionality)
-    // For advanced PDF features, consider using TCPDF or Dompdf library
+    try {
+        // Include DomPDF library
+        require_once 'vendor/autoload.php';
 
-    header('Content-Type: application/pdf');
-    header('Content-Disposition: attachment; filename="pon_data_' . date('Y-m-d') . '.pdf"');
+        // Create DomPDF instance
+        $dompdf = new Dompdf\Dompdf();
+        $dompdf->setPaper('A4', 'landscape');
 
-    $html = '
+        // Generate HTML content
+        $html = generatePDFHTML($data);
+
+        // Load HTML content
+        $dompdf->loadHtml($html);
+
+        // Render PDF
+        $dompdf->render();
+
+        // Output PDF
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="PON_Report_' . date('Y-m-d_H-i') . '.pdf"');
+        echo $dompdf->output();
+        exit;
+    } catch (Exception $e) {
+        // Fallback ke Excel jika PDF gagal
+        error_log('PDF Export Error: ' . $e->getMessage());
+        header('Location: pon.php?error=pdf_failed&message=' . urlencode($e->getMessage()));
+        exit;
+    }
+}
+
+function generatePDFHTML($data)
+{
+    $companyLogo = 'https://via.placeholder.com/150x50/3b82f6/ffffff?text=PT.WIRATAMA';
+
+    $totalWeight = 0;
+    $statusCounts = ['Selesai' => 0, 'Progress' => 0, 'Pending' => 0, 'Delayed' => 0];
+
+    foreach ($data as $row) {
+        $status = $row['status'] ?: 'Progress';
+        if (isset($statusCounts[$status])) {
+            $statusCounts[$status]++;
+        }
+        $totalWeight += (float)$row['berat_calculated'];
+    }
+
+    $tableRows = '';
+    foreach ($data as $row) {
+        $status = $row['status'] ?: 'Progress';
+        $statusColor = getStatusColor($status);
+
+        $tableRows .= "
+        <tr>
+            <td style='border: 1px solid #ddd; padding: 6px; font-size: 9px;'><strong>" . h($row['job_no']) . "</strong></td>
+            <td style='border: 1px solid #ddd; padding: 6px; font-size: 9px;'>" . h($row['pon']) . "</td>
+            <td style='border: 1px solid #ddd; padding: 6px; font-size: 9px;'>" . h($row['nama_proyek']) . "</td>
+            <td style='border: 1px solid #ddd; padding: 6px; font-size: 9px;'>" . h($row['client']) . "</td>
+            <td style='border: 1px solid #ddd; padding: 6px; font-size: 9px; text-align: center;'>" . h($row['material_type']) . "</td>
+            <td style='border: 1px solid #ddd; padding: 6px; font-size: 9px; text-align: center;'>" . h($row['qty']) . "</td>
+            <td style='border: 1px solid #ddd; padding: 6px; font-size: 9px; text-align: right;'>" . number_format($row['berat_calculated'], 2) . "</td>
+            <td style='border: 1px solid #ddd; padding: 6px; font-size: 9px; text-align: center;'><strong>" . $row['integrated_progress'] . "%</strong></td>
+            <td style='border: 1px solid #ddd; padding: 6px; font-size: 9px; text-align: center; background: " . $statusColor . "; color: white;'><strong>" . h($status) . "</strong></td>
+            <td style='border: 1px solid #ddd; padding: 6px; font-size: 9px; text-align: center;'>" . formatDateExport($row['project_start']) . "</td>
+        </tr>";
+    }
+
+    $avgProgress = count($data) > 0 ? round(array_sum(array_column($data, 'integrated_progress')) / count($data)) : 0;
+
+    return "
+    <!DOCTYPE html>
     <html>
     <head>
+        <meta charset='UTF-8'>
+        <title>PON Report</title>
         <style>
-            body { font-family: Arial, sans-serif; margin: 20px; }
-            h1 { color: #3b82f6; text-align: center; }
-            .header { text-align: center; margin-bottom: 20px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th { background-color: #3b82f6; color: white; padding: 10px; text-align: left; }
-            td { padding: 8px; border: 1px solid #ddd; }
-            tr:nth-child(even) { background-color: #f8f9fa; }
-            .footer { margin-top: 30px; text-align: center; color: #666; }
+            body { 
+                font-family: DejaVu Sans, Arial, sans-serif; 
+                margin: 15px;
+                color: #333;
+                font-size: 12px;
+            }
+            .header { 
+                text-align: center; 
+                margin-bottom: 20px;
+                border-bottom: 2px solid #3b82f6;
+                padding-bottom: 15px;
+            }
+            .company-info {
+                margin-bottom: 10px;
+            }
+            .company-name {
+                font-size: 16px;
+                font-weight: bold;
+                color: #1e40af;
+                margin-bottom: 5px;
+            }
+            .company-subtitle {
+                font-size: 11px;
+                color: #64748b;
+            }
+            .report-title {
+                font-size: 14px;
+                font-weight: bold;
+                color: #1e293b;
+                margin: 10px 0;
+            }
+            .report-info {
+                font-size: 10px;
+                color: #64748b;
+                margin-bottom: 5px;
+            }
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                margin: 15px 0;
+                font-size: 9px;
+            }
+            th {
+                background-color: #3b82f6;
+                color: white;
+                padding: 8px 6px;
+                text-align: left;
+                font-weight: bold;
+                border: 1px solid #1d4ed8;
+            }
+            td {
+                padding: 6px;
+                border: 1px solid #ddd;
+            }
+            .summary {
+                margin-top: 20px;
+                padding: 12px;
+                background: #f8fafc;
+                border: 1px solid #e2e8f0;
+                border-radius: 4px;
+                font-size: 10px;
+            }
+            .summary-row {
+                display: flex;
+                justify-content: space-between;
+                margin-bottom: 4px;
+            }
+            .footer {
+                margin-top: 20px;
+                text-align: center;
+                font-size: 9px;
+                color: #64748b;
+                border-top: 1px solid #e2e8f0;
+                padding-top: 10px;
+            }
+            .text-center { text-align: center; }
+            .text-right { text-align: right; }
+            .font-bold { font-weight: bold; }
         </style>
     </head>
     <body>
-        <div class="header">
-            <h1>PROJECT ORDER NOTIFICATION (PON) DATA</h1>
-            <p>Generated: ' . date('d/m/Y H:i:s') . '</p>
+        <div class='header'>
+            <div class='company-info'>
+                <div class='company-name'>" . APP_NAME . "</div>
+                <div class='company-subtitle'>Project Management System</div>
+            </div>
+            <div class='report-title'>PROJECT ORDER NOTIFICATION (PON) REPORT</div>
+            <div class='report-info'>Generated on: " . date('d F Y H:i:s') . "</div>
+            <div class='report-info'>Total Projects: " . count($data) . "</div>
         </div>
-        
+
         <table>
-            <tr>
-                <th>Job No</th>
-                <th>PON</th>
-                <th>Project Name</th>
-                <th>Client</th>
-                <th>Material</th>
-                <th>QTY</th>
-                <th>Weight (Kg)</th>
-                <th>Progress</th>
-                <th>Status</th>
-            </tr>';
-
-    foreach ($data as $row) {
-        $html .= '
-            <tr>
-                <td>' . h($row['job_no']) . '</td>
-                <td>' . h($row['pon']) . '</td>
-                <td>' . h($row['nama_proyek']) . '</td>
-                <td>' . h($row['client']) . '</td>
-                <td>' . h($row['material_type']) . '</td>
-                <td>' . h($row['qty']) . '</td>
-                <td>' . h($row['berat_calculated']) . '</td>
-                <td>' . h($row['progress']) . '%</td>
-                <td>' . h($row['status']) . '</td>
-            </tr>';
-    }
-
-    $html .= '
+            <thead>
+                <tr>
+                    <th width='12%'>Job No</th>
+                    <th width='12%'>PON Code</th>
+                    <th width='20%'>Project Name</th>
+                    <th width='15%'>Client</th>
+                    <th width='10%'>Material</th>
+                    <th width='6%'>QTY</th>
+                    <th width='10%'>Weight (Kg)</th>
+                    <th width='8%'>Progress</th>
+                    <th width='8%'>Status</th>
+                    <th width='9%'>Start Date</th>
+                </tr>
+            </thead>
+            <tbody>
+                " . $tableRows . "
+            </tbody>
         </table>
-        
-        <div class="footer">
-            <p>Total Projects: ' . count($data) . ' | Generated by ' . APP_NAME . '</p>
+
+        <div class='summary'>
+            <div class='summary-row'>
+                <span class='font-bold'>TOTAL PROJECTS:</span>
+                <span class='font-bold'>" . count($data) . "</span>
+            </div>
+            <div class='summary-row'>
+                <span>TOTAL WEIGHT:</span>
+                <span class='font-bold'>" . number_format($totalWeight, 2) . " kg</span>
+            </div>
+            <div class='summary-row'>
+                <span>STATUS DISTRIBUTION:</span>
+                <span>
+                    Selesai: " . $statusCounts['Selesai'] . " | 
+                    Progress: " . $statusCounts['Progress'] . " | 
+                    Pending: " . $statusCounts['Pending'] . " | 
+                    Delayed: " . $statusCounts['Delayed'] . "
+                </span>
+            </div>
+            <div class='summary-row'>
+                <span>AVERAGE PROGRESS:</span>
+                <span class='font-bold'>" . $avgProgress . "%</span>
+            </div>
+        </div>
+
+        <div class='footer'>
+            <p>© " . date('Y') . " " . APP_NAME . " - Project Management System</p>
+            <p>This report was generated automatically from the system</p>
         </div>
     </body>
-    </html>';
-
-    echo $html;
-    exit;
+    </html>";
 }
 
 function exportCSV($data)
 {
     header('Content-Type: text/csv; charset=utf-8');
-    header('Content-Disposition: attachment; filename="pon_data_' . date('Y-m-d') . '.csv"');
+    header('Content-Disposition: attachment; filename="PON_Data_' . date('Y-m-d_H-i') . '.csv"');
 
     $output = fopen('php://output', 'w');
 
     // Add BOM for UTF-8
     fputs($output, $bom = (chr(0xEF) . chr(0xBB) . chr(0xBF)));
 
-    // Headers
+    // Header Information
+    fputcsv($output, [APP_NAME . ' - PROJECT ORDER NOTIFICATION REPORT']);
+    fputcsv($output, ['Generated on: ' . date('d F Y H:i:s')]);
+    fputcsv($output, ['Total Projects: ' . count($data)]);
+    fputcsv($output, []); // Empty line
+
+    // Column Headers
     fputcsv($output, [
         'Job No',
-        'PON',
+        'PON Code',
         'Project Name',
         'Client',
-        'Location',
-        'Material',
-        'QTY',
-        'Weight (Kg)',
-        'Progress',
+        'Project Manager',
+        'Material Type',
+        'Quantity',
+        'Total Weight (kg)',
+        'Progress (%)',
         'Status',
         'Project Start',
         'PON Date',
         'Finish Date',
-        'Project Manager',
-        'Contract No'
+        'Contract No',
+        'Subject',
+        'Location'
     ]);
 
-    // Data
+    // Data Rows
     foreach ($data as $row) {
         fputcsv($output, [
             $row['job_no'],
             $row['pon'],
             $row['nama_proyek'],
             $row['client'],
-            $row['alamat_kontrak'],
+            $row['project_manager'],
             $row['material_type'],
             $row['qty'],
-            $row['berat_calculated'],
-            $row['progress'] . '%',
-            $row['status'],
+            number_format($row['berat_calculated'], 2),
+            $row['integrated_progress'],
+            $row['status'] ?: 'Progress',
             formatDateExport($row['project_start']),
             formatDateExport($row['date_pon']),
             formatDateExport($row['date_finish']),
-            $row['project_manager'],
-            $row['no_contract']
+            $row['no_contract'],
+            $row['subject'],
+            $row['alamat_kontrak']
         ]);
     }
+
+    fputcsv($output, []); // Empty line
+
+    // Summary
+    $totalWeight = array_sum(array_map(fn($r) => (float) $r['berat_calculated'], $data));
+    fputcsv($output, ['SUMMARY:']);
+    fputcsv($output, ['Total Projects:', count($data)]);
+    fputcsv($output, ['Total Weight:', number_format($totalWeight, 2) . ' kg']);
 
     fclose($output);
     exit;
 }
+?>

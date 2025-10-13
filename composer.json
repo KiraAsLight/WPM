@@ -1,6 +1,9 @@
 {
   "require": {
-    "phpoffice/phpspreadsheet": "1.28"
+    "phpoffice/phpspreadsheet": "^5.1",
+    "tecnickcom/tcpdf": "^6.10",
+    "dompdf/dompdf": "^3.1",
+    "phpmailer/phpmailer": "^6.11"
   },
   "autoload": {
     "psr-4": {

@@ -310,7 +310,7 @@ if ($selPon) {
         }
 
         .time-filter select {
-            background: rgba(255, 255, 255, 0.05);
+            background: #0d142a;
             border: 1px solid var(--border);
             border-radius: 6px;
             padding: 8px 12px;
@@ -504,7 +504,7 @@ if ($selPon) {
 
         .status-filter,
         .type-filter {
-            background: rgba(255, 255, 255, 0.05);
+            background: #0d142a;
             border: 1px solid var(--border);
             border-radius: 6px;
             padding: 10px 12px;
@@ -767,7 +767,6 @@ if ($selPon) {
                 <a class="<?= $activeMenu === 'Dashboard' ? 'active' : '' ?>" href="dashboard.php"><span class="icon bi-house"></span> Dashboard</a>
                 <a class="<?= $activeMenu === 'PON' ? 'active' : '' ?>" href="pon.php"><span class="icon bi-journal-text"></span> PON</a>
                 <a class="<?= $activeMenu === 'Task List' ? 'active' : '' ?>" href="tasklist.php"><span class="icon bi-list-check"></span> Task List</a>
-                <a class="<?= $activeMenu === 'Progres Divisi' ? 'active' : '' ?>" href="progres_divisi.php"><span class="icon bi-bar-chart"></span> Progres Divisi</a>
                 <a href="logout.php"><span class="icon bi-box-arrow-right"></span> Logout</a>
             </nav>
         </aside>
@@ -824,7 +823,7 @@ if ($selPon) {
                         </div>
                         <div class="stat-content">
                             <div class="stat-value"><?= $integratedTotal - $integratedDone ?></div>
-                            <div class="stat-label">In Progress</div>
+                            <div class="stat-label">Progress</div>
                             <div class="progress-info">Active items</div>
                         </div>
                     </div>
@@ -867,7 +866,7 @@ if ($selPon) {
                         <select class="status-filter" onchange="this.form.submit()" name="status">
                             <option value="">All Status</option>
                             <option value="selesai" <?= $statusFilter === 'selesai' ? 'selected' : '' ?>>Selesai</option>
-                            <option value="progres" <?= $statusFilter === 'progres' ? 'selected' : '' ?>>Progres</option>
+                            <option value="progress" <?= $statusFilter === 'progress' ? 'selected' : '' ?>>Progress</option>
                             <option value="pending" <?= $statusFilter === 'pending' ? 'selected' : '' ?>>Pending</option>
                             <option value="delayed" <?= $statusFilter === 'delayed' ? 'selected' : '' ?>>Delayed</option>
                         </select>

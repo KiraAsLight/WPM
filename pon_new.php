@@ -9,6 +9,7 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
 }
 
 require_once 'config.php';
+require_once 'send_email.php';
 
 $appName = APP_NAME;
 $activeMenu = 'PON';
@@ -59,7 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   } else {
     // Validasi format Job Number (W-XXX)
     if (!preg_match('/^W-\d+$/', $old['job_no'])) {
-      $errors['job_no'] = 'Format Job Number harus W-XXX (contoh: W-713)';
+      $errors['job_no'] = 'Format Job Number harus W-XXX (contoh: W-001)';
     } else {
       // Cek duplikasi di database
       try {
@@ -136,12 +137,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'nama_proyek' => $old['nama_proyek'],
         'project_manager' => $old['project_manager'],
         'qty' => (int) $old['qty'],
-        'progress' => 0, // Default 0%
+        'progress' => 0,
         'fabrikasi_imported' => 0,
         'logistik_imported' => 0,
         'date_pon' => date('Y-m-d', strtotime($old['date_pon'])),
         'date_finish' => $old['date_finish'] ? date('Y-m-d', strtotime($old['date_finish'])) : null,
-        'status' => 'Progress', // Default 'Progress'
+        'status' => 'Progress', // PASTIKAN INI ADA
         'alamat_kontrak' => $old['alamat_kontrak'],
         'no_contract' => $old['no_contract'],
         'contract_date' => $old['contract_date'] ? date('Y-m-d', strtotime($old['contract_date'])) : null,
@@ -151,6 +152,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       ];
 
       $insertedId = insert('pon', $data);
+
+      if ($insertedId) {
+        // ✅ KIRIM EMAIL NOTIFICATION
+        $emailSent = sendPONNotification($data, 'created');
+
+        if ($emailSent) {
+          header('Location: pon.php?added=1&email=sent');
+        } else {
+          header('Location: pon.php?added=1&email=failed');
+        }
+        exit;
+      }
 
       // // Create default tasks for each division
       // $divisions = ['Engineering', 'Logistik', 'Pabrikasi', 'Purchasing'];
@@ -430,7 +443,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <a class="<?= $activeMenu === 'Dashboard' ? 'active' : '' ?>" href="dashboard.php"><span class="icon bi-house"></span> Dashboard</a>
         <a class="<?= $activeMenu === 'PON' ? 'active' : '' ?>" href="pon.php"><span class="icon bi-journal-text"></span> PON</a>
         <a class="<?= $activeMenu === 'Task List' ? 'active' : '' ?>" href="tasklist.php"><span class="icon bi-list-check"></span> Task List</a>
-        <a class="<?= $activeMenu === 'Progres Divisi' ? 'active' : '' ?>" href="progres_divisi.php"><span class="icon bi-bar-chart"></span> Progres Divisi</a>
         <a href="logout.php"><span class="icon bi-box-arrow-right"></span> Logout</a>
       </nav>
     </aside>

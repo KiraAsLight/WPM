@@ -204,7 +204,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .file-input:focus {
             outline: none;
             border-color: #3b82f6;
-            background: rgba(255, 255, 255, 0.08);
+            background: #0d142a;
         }
 
         .textarea {
@@ -235,7 +235,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         .progress-bar-preview {
-            width: 100px;
+            width: 100%;
             height: 6px;
             background: rgba(255, 255, 255, 0.1);
             border-radius: 3px;

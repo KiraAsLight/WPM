@@ -187,8 +187,8 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
             flex-shrink: 0;
             display: grid;
             grid-template-columns: repeat(6, 1fr);
-            gap: 16px;
-            margin-bottom: 24px;
+            gap: 12px;
+            margin-bottom: 16px;
         }
 
         .stat-card {
