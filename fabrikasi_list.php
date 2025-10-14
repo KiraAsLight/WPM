@@ -94,7 +94,7 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            padding: 24px;
+            padding: 14px;
         }
 
         .footer {
@@ -106,9 +106,9 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
             flex-shrink: 0;
             background: var(--card-bg);
             border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 20px 24px;
-            margin-bottom: 24px;
+            border-radius: 8px;
+            padding: 10px 14px;
+            margin-bottom: 10px;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -117,20 +117,20 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
         .header-left {
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 12px;
         }
 
         .back-btn {
             background: rgba(255, 255, 255, 0.05);
             border: 1px solid var(--border);
             color: var(--text);
-            padding: 8px 12px;
+            padding: 6px 10px;
             border-radius: 6px;
             text-decoration: none;
             display: flex;
             align-items: center;
             gap: 6px;
-            font-size: 13px;
+            font-size: 12px;
             transition: all 0.2s;
         }
 
@@ -139,27 +139,29 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
         }
 
         .page-title {
-            font-size: 20px;
+            font-size: 16px;
             font-weight: 600;
             color: var(--text);
+            line-height: 1;
         }
 
         .header-actions {
             display: flex;
-            gap: 12px;
+            gap: 8px;
         }
 
         .btn {
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-            padding: 10px 20px;
-            border-radius: 8px;
+            gap: 6px;
+            padding: 7px 14px;
+            border-radius: 6px;
             text-decoration: none;
-            font-size: 14px;
+            font-size: 12px;
             font-weight: 600;
             transition: all 0.2s;
             border: 1px solid;
+            line-height: 1;
         }
 
         .btn-primary {
@@ -187,29 +189,31 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
             flex-shrink: 0;
             display: grid;
             grid-template-columns: repeat(6, 1fr);
-            gap: 12px;
-            margin-bottom: 16px;
+            gap: 6px;
+            margin-bottom: 10px;
         }
 
         .stat-card {
             background: var(--card-bg);
             border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 16px;
+            border-radius: 6px;
+            padding: 6px 10px;
             text-align: center;
         }
 
         .stat-value {
-            font-size: 24px;
+            font-size: 16px;
             font-weight: 700;
             color: var(--text);
-            margin-bottom: 4px;
+            margin-bottom: 2px;
+            line-height: 1;
         }
 
         .stat-label {
-            font-size: 11px;
+            font-size: 8px;
             color: var(--muted);
             font-weight: 500;
+            line-height: 1.1;
         }
 
         /* Success Message */
@@ -218,12 +222,14 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
             background: rgba(34, 197, 94, 0.1);
             border: 1px solid rgba(34, 197, 94, 0.3);
             color: #86efac;
-            padding: 12px 16px;
-            border-radius: 8px;
-            margin-bottom: 20px;
+            padding: 6px 10px;
+            border-radius: 6px;
+            margin-bottom: 10px;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
+            font-size: 11px;
+            line-height: 1.3;
         }
 
         /* Table Section - Flex Grow */
@@ -241,7 +247,7 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
         .section-header-bar {
             flex-shrink: 0;
             background: #2d3748;
-            padding: 16px 24px;
+            padding: 8px 14px;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -249,9 +255,10 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
         }
 
         .section-title {
-            font-size: 16px;
+            font-size: 13px;
             font-weight: 600;
             color: var(--text);
+            line-height: 1;
         }
 
         /* Table Container - Scrollable */
@@ -279,17 +286,18 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
         }
 
         .data-table th {
-            padding: 12px 16px;
+            padding: 8px 10px;
             text-align: center;
             color: var(--muted);
             font-weight: 600;
-            font-size: 11px;
+            font-size: 9px;
             text-transform: uppercase;
             border-bottom: 1px solid var(--border);
             border-right: 1px solid rgba(255, 255, 255, 0.05);
             white-space: nowrap;
             vertical-align: middle;
             background: #374151;
+            line-height: 1.2;
         }
 
         .data-table th:last-child {
@@ -297,13 +305,14 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
         }
 
         .data-table td {
-            padding: 10px 16px;
+            padding: 6px 10px;
             color: var(--text);
-            font-size: 12px;
+            font-size: 11px;
             border-bottom: 1px solid var(--border);
             border-right: 1px solid rgba(255, 255, 255, 0.05);
             vertical-align: middle;
             white-space: nowrap;
+            line-height: 1.3;
         }
 
         .data-table td:last-child {
@@ -322,53 +331,95 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
             text-align: center;
         }
 
+        .data-table th:nth-child(2),
         .data-table td:nth-child(2) {
+            min-width: 120px;
             max-width: 150px;
             text-align: center;
         }
 
+        .data-table th:nth-child(3),
         .data-table td:nth-child(3) {
-            max-width: 80px;
+            min-width: 80px;
+            max-width: 100px;
             text-align: center;
         }
 
+        .data-table th:nth-child(4),
         .data-table td:nth-child(4) {
-            max-width: 250px;
+            min-width: 200px;
+            max-width: 300px;
             white-space: normal;
             word-wrap: break-word;
             text-align: left;
+            padding-left: 12px;
         }
 
-        .data-table td:nth-child(5),
-        .data-table td:nth-child(6),
-        .data-table td:nth-child(7) {
+        .data-table th:nth-child(5),
+        .data-table td:nth-child(5) {
+            min-width: 70px;
+            max-width: 90px;
             text-align: center;
-            min-width: 80px;
         }
 
+        .data-table th:nth-child(6),
+        .data-table td:nth-child(6) {
+            min-width: 90px;
+            max-width: 110px;
+            text-align: center;
+        }
+
+        .data-table th:nth-child(7),
+        .data-table td:nth-child(7) {
+            min-width: 90px;
+            max-width: 110px;
+            text-align: center;
+        }
+
+        .data-table th:nth-child(8),
         .data-table td:nth-child(8) {
             min-width: 120px;
             text-align: center;
         }
 
+        .data-table th:nth-child(9),
         .data-table td:nth-child(9) {
-            max-width: 120px;
+            min-width: 110px;
+            max-width: 140px;
             text-align: center;
         }
 
-        .data-table td:nth-child(10),
-        .data-table td:nth-child(11),
-        .data-table td:nth-child(12) {
+        .data-table th:nth-child(10),
+        .data-table td:nth-child(10) {
+            min-width: 90px;
             text-align: right;
-            min-width: 80px;
+            padding-right: 12px;
         }
 
+        .data-table th:nth-child(11),
+        .data-table td:nth-child(11) {
+            min-width: 90px;
+            text-align: right;
+            padding-right: 12px;
+        }
+
+        .data-table th:nth-child(12),
+        .data-table td:nth-child(12) {
+            min-width: 110px;
+            text-align: right;
+            padding-right: 12px;
+        }
+
+        .data-table th:nth-child(13),
         .data-table td:nth-child(13) {
-            max-width: 200px;
+            min-width: 150px;
+            max-width: 250px;
             white-space: normal;
             text-align: left;
+            padding-left: 12px;
         }
 
+        .data-table th:nth-child(14),
         .data-table td:nth-child(14) {
             width: 90px;
             min-width: 90px;
@@ -482,11 +533,12 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
 
         /* Badges */
         .badge {
-            padding: 4px 8px;
+            padding: 3px 6px;
             border-radius: 4px;
             font-size: 10px;
             font-weight: 600;
             white-space: nowrap;
+            line-height: 1;
         }
 
         .bg-success {
@@ -733,6 +785,7 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
     </div>
 
     <script>
+        // Clock function
         (function() {
             const el = document.getElementById('clock');
             if (!el) return;
@@ -748,6 +801,24 @@ $totalWeight = array_sum(array_column($items, 'total_weight_kg'));
             }
             tick();
             setInterval(tick, 1000);
+        })();
+
+        // Auto-hide success message after 3 seconds
+        (function() {
+            const successMsg = document.querySelector('.success-msg');
+            if (successMsg) {
+                // Add fade out animation
+                setTimeout(function() {
+                    successMsg.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+                    successMsg.style.opacity = '0';
+                    successMsg.style.transform = 'translateY(-10px)';
+
+                    // Remove from DOM after animation
+                    setTimeout(function() {
+                        successMsg.remove();
+                    }, 500);
+                }, 3000); // 3 seconds
+            }
         })();
     </script>
 </body>
