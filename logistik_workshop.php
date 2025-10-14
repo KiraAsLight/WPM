@@ -104,7 +104,7 @@ $totalQty = array_sum(array_column($items, 'qty'));
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            padding: 24px;
+            padding: 14px;
         }
 
         .footer {
@@ -116,9 +116,9 @@ $totalQty = array_sum(array_column($items, 'qty'));
             flex-shrink: 0;
             background: var(--card-bg);
             border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 20px 24px;
-            margin-bottom: 24px;
+            border-radius: 8px;
+            padding: 10px 14px;
+            margin-bottom: 10px;
             display: flex;
             justify-content: space-between;
             align-items: center;
